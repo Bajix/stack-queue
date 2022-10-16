@@ -92,6 +92,7 @@ where
     }
   }
 
+  #[inline(always)]
   fn current_write_index(&self) -> usize {
     // This algorithm can utilize an UnsafeCell for the index counter because where the current task
     // is written is independent of when a phase change would result in a new task batch owning a
@@ -149,6 +150,7 @@ where
     task_ref.init(task, rx);
   }
 
+  #[inline(always)]
   fn replace_slot(&self, slot: usize) -> usize {
     std::mem::replace(unsafe { &mut *self.slot.get() }, slot)
   }

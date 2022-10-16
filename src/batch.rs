@@ -69,6 +69,7 @@ where
     }
   }
 
+  #[inline(always)]
   pub(crate) fn state_ptr(&self) -> *const AtomicUsize {
     addr_of!(self.state)
   }
@@ -78,10 +79,12 @@ where
     self.task.get_mut().write(task);
   }
 
+  #[inline(always)]
   pub fn task(&self) -> &T::Task {
     unsafe { (*self.task.get()).assume_init_ref() }
   }
 
+  #[inline(always)]
   pub(crate) unsafe fn take_task_unchecked(&self) -> T::Task {
     std::mem::replace(&mut *self.task.get(), MaybeUninit::uninit()).assume_init()
   }
@@ -135,6 +138,7 @@ where
     }
   }
 
+  #[inline(always)]
   fn state(&self) -> &AtomicUsize {
     unsafe { &*self.state }
   }

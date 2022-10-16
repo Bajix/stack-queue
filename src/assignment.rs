@@ -38,6 +38,7 @@ where
     }
   }
 
+  #[inline(always)]
   fn queue(&self) -> &Inner<T, N> {
     // This can be safely dereferenced because Inner is immovable by design and will suspend it's
     // thread termination as necessary until no references exist
@@ -122,6 +123,7 @@ where
     }
   }
 
+  #[inline(always)]
   fn queue(&self) -> &Inner<T, N> {
     // This can be safely dereferenced because Inner is immovable by design and will block it's
     // thread termination as necessary until no references exist

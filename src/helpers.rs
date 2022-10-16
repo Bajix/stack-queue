@@ -105,6 +105,7 @@ where
 }
 
 // A mask comprising of the active phase bit and the N-th bit shifted to align with the index
+#[inline(always)]
 pub(crate) fn phase_mask<const N: usize>(slot: &usize) -> usize
 where
   Assert<{ N == N.next_power_of_two() }>: IsTrue,
