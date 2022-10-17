@@ -10,6 +10,7 @@ repository = "https://github.com/Bajix/stack-queue/"
 
 [dependencies]
 async_t = "0.7"
+bit-bounds = "0.1.0"
 cache-padded = "1.2"
 const-assert = "1.0.0"
 pin-project = "1"

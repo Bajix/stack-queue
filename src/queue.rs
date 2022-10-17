@@ -10,6 +10,7 @@ use std::{
 };
 
 use async_t::async_trait;
+use bit_bounds::{usize::Int, IsPowerOf2};
 use cache_padded::CachePadded;
 use const_assert::{Assert, IsFalse, IsTrue};
 use tokio::runtime::Handle;
@@ -46,14 +47,18 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
   async fn batch_process(assignment: PendingAssignment<Self>) -> CompletionReceipt<Self>;
 }
 
-pub(crate) struct Inner<T: TaskQueue, const N: usize = 2048> {
+pub(crate) struct Inner<T: TaskQueue, const N: usize = 2048>
+where
+  Int<N>: IsPowerOf2,
+{
   pub(crate) slot: CachePadded<AtomicUsize>,
   pub(crate) occupancy: CachePadded<AtomicUsize>,
   pub(crate) buffer: [UnsafeCell<MaybeUninit<TaskRef<T>>>; N],
 }
-impl<T: TaskQueue> Inner<T>
+impl<T: TaskQueue, const N: usize> Inner<T, N>
 where
   T: TaskQueue,
+  Int<N>: IsPowerOf2,
 {
   const fn new() -> Self {
     Inner {
@@ -68,21 +73,24 @@ where
 #[derive(Debug)]
 pub(crate) struct QueueFull;
 
-pub struct StackQueue<T: TaskQueue, const N: usize = 2048> {
+pub struct StackQueue<T: TaskQueue, const N: usize = 2048>
+where
+  Int<N>: IsPowerOf2,
+{
   slot: CachePadded<UnsafeCell<usize>>,
   occupancy: CachePadded<UnsafeCell<usize>>,
-  inner: Inner<T>,
+  inner: Inner<T, N>,
 }
 
 impl<T: TaskQueue, const N: usize> StackQueue<T, N>
 where
   T: TaskQueue,
-  Assert<{ N >= MIN_BUFFER_LEN }>: IsTrue,
-  Assert<{ N <= MAX_BUFFER_LEN }>: IsTrue,
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   pub const fn new() -> Self
   where
+    Assert<{ N >= MIN_BUFFER_LEN }>: IsTrue,
+    Assert<{ N <= MAX_BUFFER_LEN }>: IsTrue,
     Assert<{ needs_drop::<T::Task>() }>: IsFalse,
   {
     StackQueue {
@@ -155,7 +163,10 @@ where
     std::mem::replace(unsafe { &mut *self.slot.get() }, slot)
   }
 
-  pub(crate) fn enqueue<F>(&self, write_with: F) -> Result<Option<PendingAssignment<T>>, QueueFull>
+  pub(crate) fn enqueue<F>(
+    &self,
+    write_with: F,
+  ) -> Result<Option<PendingAssignment<T, N>>, QueueFull>
   where
     F: FnOnce(*const AtomicUsize) -> (T::Task, *const Receiver<T>),
   {
@@ -197,6 +208,7 @@ where
 impl<T: TaskQueue, const N: usize> Drop for StackQueue<T, N>
 where
   T: TaskQueue,
+  Int<N>: IsPowerOf2,
 {
   fn drop(&mut self) {
     while self.inner.occupancy.load(Ordering::Acquire).ne(&0) {

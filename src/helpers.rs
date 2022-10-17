@@ -1,4 +1,4 @@
-use const_assert::{Assert, IsTrue};
+use bit_bounds::{usize::Int, IsPowerOf2};
 
 use crate::queue::INDEX_SHIFT;
 
@@ -15,7 +15,7 @@ pub(crate) const REGION_COUNT: usize = 4;
 #[cfg(target_pointer_width = "64")]
 pub(crate) const fn region_size<const N: usize>() -> usize
 where
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   N << 3
 }
@@ -25,7 +25,7 @@ where
 #[cfg(target_pointer_width = "32")]
 pub(crate) const fn region_size<const N: usize>() -> usize
 where
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   N << 2
 }
@@ -35,7 +35,7 @@ where
 #[cfg(target_pointer_width = "64")]
 pub(crate) const fn region_shift<const N: usize>() -> usize
 where
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   N.trailing_zeros() as usize - 3
 }
@@ -45,7 +45,7 @@ where
 #[cfg(target_pointer_width = "32")]
 pub(crate) const fn region_shift<const N: usize>() -> usize
 where
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   N.trailing_zeros() as usize - 2
 }
@@ -54,7 +54,7 @@ where
 #[inline(always)]
 pub(crate) fn current_region<const N: usize>(index: &usize) -> usize
 where
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   index >> region_shift::<N>()
 }
@@ -63,7 +63,7 @@ where
 #[inline(always)]
 pub(crate) fn region_mask<const N: usize>(index: &usize) -> usize
 where
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   // Shift the region mask 8 bits per region
   REGION_MASK << (current_region::<N>(index) << REGION_COUNT.trailing_zeros())
@@ -73,7 +73,7 @@ where
 #[inline(always)]
 pub(crate) fn slot_index<const N: usize>(slot: &usize) -> usize
 where
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   // The bitwise right shift discards flags and gives us a counter that wraps around. The bitwise
   // AND gives us the modulus; this works because N will always be a power of 2, and so N - 1 will
@@ -88,7 +88,7 @@ where
 #[inline(always)]
 pub(crate) fn active_phase_bit<const N: usize>(slot: &usize) -> usize
 where
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   // (1 & (slot >> N.trailing_zeros() as usize + INDEX_SHIFT) extracts index & N as the 0 bit, which
   // then determines the current phase bit, 1 << 0 or 1 << 1, and alternates every N.
@@ -99,7 +99,7 @@ where
 #[inline(always)]
 pub(crate) fn one_shifted<const N: usize>(index: &usize) -> usize
 where
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   1 << ((index >> region_shift::<N>()) << REGION_COUNT.trailing_zeros())
 }
@@ -108,7 +108,7 @@ where
 #[inline(always)]
 pub(crate) fn phase_mask<const N: usize>(slot: &usize) -> usize
 where
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   active_phase_bit::<N>(slot) | (N << INDEX_SHIFT)
 }

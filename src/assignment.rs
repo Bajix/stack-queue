@@ -5,7 +5,7 @@ use std::{
   sync::atomic::Ordering,
 };
 
-use const_assert::{Assert, IsTrue};
+use bit_bounds::{usize::Int, IsPowerOf2};
 use rayon::prelude::*;
 
 use crate::{
@@ -20,7 +20,7 @@ use crate::{
 /// resources such as database connections are ready as a way to process tasks in larger batches.
 pub struct PendingAssignment<T: TaskQueue, const N: usize = 2048>
 where
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   base_slot: usize,
   queue_ptr: *const Inner<T, N>,
@@ -29,7 +29,7 @@ where
 impl<T, const N: usize> PendingAssignment<T, N>
 where
   T: TaskQueue,
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   pub(crate) fn new(base_slot: usize, queue_ptr: *const Inner<T, N>) -> Self {
     PendingAssignment {
@@ -96,7 +96,7 @@ unsafe impl<T> Sync for PendingAssignment<T> where T: TaskQueue {}
 impl<T, const N: usize> Drop for PendingAssignment<T, N>
 where
   T: TaskQueue,
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   fn drop(&mut self) {
     self.deoccupy_buffer();
@@ -105,7 +105,7 @@ where
 
 pub struct TaskAssignment<T: TaskQueue, const N: usize = 2048>
 where
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   task_range: Range<usize>,
   queue_ptr: *const Inner<T, N>,
@@ -114,7 +114,7 @@ where
 impl<T, const N: usize> TaskAssignment<T, N>
 where
   T: TaskQueue,
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   fn new(task_range: Range<usize>, queue_ptr: *const Inner<T, N>) -> Self {
     TaskAssignment {
@@ -169,7 +169,7 @@ where
 impl<T, const N: usize> Drop for TaskAssignment<T, N>
 where
   T: TaskQueue,
-  Assert<{ N == N.next_power_of_two() }>: IsTrue,
+  Int<N>: IsPowerOf2,
 {
   fn drop(&mut self) {
     self.deoccupy_buffer();

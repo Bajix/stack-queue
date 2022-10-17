@@ -14,6 +14,7 @@ use std::{
   thread::yield_now,
 };
 
+use bit_bounds::{usize::Int, IsPowerOf2};
 use pin_project::{pin_project, pinned_drop};
 
 use crate::queue::{QueueFull, TaskQueue};
@@ -156,13 +157,17 @@ enum State<T: TaskQueue> {
 }
 
 #[pin_project(project = AutoBatchProj, PinnedDrop)]
-pub struct AutoBatch<T: TaskQueue> {
+pub struct AutoBatch<T: TaskQueue, const N: usize = 2048>
+where
+  Int<N>: IsPowerOf2,
+{
   state: State<T>,
 }
 
-impl<T> AutoBatch<T>
+impl<T, const N: usize> AutoBatch<T, N>
 where
   T: TaskQueue,
+  Int<N>: IsPowerOf2,
 {
   pub fn new(task: T::Task) -> Self {
     AutoBatch {
@@ -171,9 +176,10 @@ where
   }
 }
 
-impl<T> Future for AutoBatch<T>
+impl<T, const N: usize> Future for AutoBatch<T, N>
 where
   T: TaskQueue,
+  Int<N>: IsPowerOf2,
 {
   type Output = T::Value;
 
@@ -233,9 +239,10 @@ where
 }
 
 #[pinned_drop]
-impl<T> PinnedDrop for AutoBatch<T>
+impl<T, const N: usize> PinnedDrop for AutoBatch<T, N>
 where
   T: TaskQueue,
+  Int<N>: IsPowerOf2,
 {
   fn drop(self: Pin<&mut Self>) {
     if let State::Batched(rx) = &self.state {
