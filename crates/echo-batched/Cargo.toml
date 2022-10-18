@@ -1,0 +1,32 @@
+[package]
+authors = ["Thomas Sieverding <Thomas@bajix.com>"]
+edition = "2021"
+name = "echo-batched"
+version = "0.0.1"
+description = "Basic batching for perf comparison"
+readme = "../../README.md"
+license = "MIT"
+repository = "https://github.com/Bajix/stack-queue/"
+
+[dependencies]
+async_t = "0.7"
+crossbeam-deque = "0.8.2"
+flume = "0.10.14"
+futures = "0.3.24"
+swap-queue = "1.1.0"
+tokio = { version = "1", features = ["rt", "macros", "time"] }
+stack-queue = { path = "../stack-queue" }
+
+[dev-dependencies]
+criterion = { version = "0.4.0", features = ["async_tokio", "html_reports"] }
+jemallocator = "0.5.0"
+
+[lib]
+doctest = false
+bench = false
+
+[[bench]]
+name = "benchmarks"
+path = "../../benches/bench.rs"
+harness = false
+doc = false

@@ -1,6 +1,7 @@
 
 [workspace]
 members = [
+  "crates/echo-batched",
   "crates/stack-queue"
 ]
 
