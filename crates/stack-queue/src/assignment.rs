@@ -6,7 +6,6 @@ use std::{
 };
 
 use bit_bounds::{usize::Int, IsPowerOf2};
-use rayon::prelude::*;
 
 use crate::{
   helpers::{active_phase_bit, one_shifted, slot_index},
@@ -140,7 +139,7 @@ where
   where
     F: Fn(T::Task) -> T::Value + Sync,
   {
-    self.tasks().into_par_iter().for_each(|task_ref| unsafe {
+    self.tasks().into_iter().for_each(|task_ref| unsafe {
       let task = task_ref.take_task_unchecked();
       task_ref.resolve_unchecked(op(task));
     });
