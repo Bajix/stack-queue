@@ -103,12 +103,3 @@ where
 {
   1 << ((index >> region_shift::<N>()) << REGION_COUNT.trailing_zeros())
 }
-
-// A mask comprising of the active phase bit and the N-th bit shifted to align with the index
-#[inline(always)]
-pub(crate) fn phase_mask<const N: usize>(slot: &usize) -> usize
-where
-  Int<N>: IsPowerOf2,
-{
-  active_phase_bit::<N>(slot) | (N << INDEX_SHIFT)
-}

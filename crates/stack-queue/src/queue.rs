@@ -186,9 +186,7 @@ where
 
     let prev_slot = self.replace_slot(base_slot.wrapping_add(1 << INDEX_SHIFT));
 
-    let phase_xor = (base_slot ^ prev_slot) & phase_mask::<N>(&base_slot);
-
-    if phase_xor.eq(&0) {
+    if write_index.ne(&0) && ((base_slot ^ prev_slot) & active_phase_bit::<N>(&base_slot)).eq(&0) {
       Ok(None)
     } else {
       self.occupy_region(&write_index);
@@ -244,7 +242,8 @@ mod test {
     }
 
     async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
-      batch.into_assignment().map(|val| val)
+      let assignment = batch.into_assignment();
+      assignment.map(|val| val)
     }
   }
 
@@ -253,6 +252,13 @@ mod test {
     let batch: Vec<usize> = join_all((0..100).map(|i| EchoQueue::auto_batch(i))).await;
 
     assert_eq!(batch, (0..100).collect::<Vec<usize>>());
+  }
+
+  #[tokio::test]
+  async fn it_cycles() {
+    for i in 0..4096 {
+      EchoQueue::auto_batch(i).await;
+    }
   }
 
   struct SlowQueue;

@@ -7,6 +7,6 @@ mod batch;
 mod helpers;
 mod queue;
 
-pub use assignment::{CompletionReceipt, TaskAssignment};
+pub use assignment::{CompletionReceipt, PendingAssignment, TaskAssignment};
 pub use batch::{AutoBatch, TaskRef};
 pub use queue::{StackQueue, TaskQueue};
