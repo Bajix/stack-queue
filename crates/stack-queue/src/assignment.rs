@@ -83,7 +83,7 @@ where
     self
       .queue()
       .occupancy
-      .fetch_sub(shifted_sub, Ordering::Release);
+      .fetch_sub(shifted_sub, Ordering::Relaxed);
   }
 }
 
@@ -153,7 +153,7 @@ where
     self
       .queue()
       .occupancy
-      .fetch_sub(shifted_sub, Ordering::Release);
+      .fetch_sub(shifted_sub, Ordering::Relaxed);
   }
 
   fn into_completion_receipt(self) -> CompletionReceipt<T> {

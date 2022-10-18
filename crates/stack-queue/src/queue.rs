@@ -121,7 +121,7 @@ where
     }
 
     // Usually this slow path won't occur because occupancy syncs when new batches are created
-    let occupancy = self.inner.occupancy.load(Ordering::Acquire);
+    let occupancy = self.inner.occupancy.load(Ordering::Relaxed);
     let regional_occupancy = occupancy.bitand(region_mask);
 
     unsafe { *self.occupancy.get() = occupancy };
@@ -141,7 +141,7 @@ where
     let occupancy = self
       .inner
       .occupancy
-      .fetch_add(shifted_add, Ordering::AcqRel)
+      .fetch_add(shifted_add, Ordering::Relaxed)
       .wrapping_add(shifted_add);
 
     unsafe { *self.occupancy.get() = occupancy };
@@ -209,7 +209,7 @@ where
   Int<N>: IsPowerOf2,
 {
   fn drop(&mut self) {
-    while self.inner.occupancy.load(Ordering::Acquire).ne(&0) {
+    while self.inner.occupancy.load(Ordering::Relaxed).ne(&0) {
       Handle::current().block_on(tokio::task::yield_now());
     }
   }
