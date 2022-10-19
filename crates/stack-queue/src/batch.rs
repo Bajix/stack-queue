@@ -15,6 +15,8 @@ use std::{
 };
 
 use bit_bounds::{usize::Int, IsPowerOf2};
+#[cfg(feature = "diesel-associations")]
+use diesel::associations::BelongsTo;
 use pin_project::{pin_project, pinned_drop};
 
 use crate::queue::{QueueFull, TaskQueue};
@@ -117,6 +119,25 @@ where
 }
 
 unsafe impl<T> Sync for TaskRef<T> where T: TaskQueue {}
+
+#[cfg(feature = "diesel-associations")]
+impl<T, Parent> BelongsTo<Parent> for TaskRef<T>
+where
+  T: TaskQueue,
+  T::Task: BelongsTo<Parent>,
+{
+  type ForeignKey = <T::Task as BelongsTo<Parent>>::ForeignKey;
+
+  type ForeignKeyColumn = <T::Task as BelongsTo<Parent>>::ForeignKeyColumn;
+
+  fn foreign_key(&self) -> Option<&Self::ForeignKey> {
+    self.task().foreign_key()
+  }
+
+  fn foreign_key_column() -> Self::ForeignKeyColumn {
+    <T::Task as BelongsTo<Parent>>::foreign_key_column()
+  }
+}
 
 #[pin_project]
 pub struct Receiver<T: TaskQueue> {
