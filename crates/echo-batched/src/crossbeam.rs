@@ -19,16 +19,14 @@ pub async fn push_echo(i: u64) -> u64 {
       let stealer = queue.stealer();
 
       Handle::current().spawn(async move {
-        let batch: Vec<(u64, Sender<u64>)> = std::iter::from_fn(|| loop {
+        std::iter::from_fn(|| loop {
           match stealer.steal() {
             Steal::Success(task) => break Some(task),
             Steal::Retry => continue,
             Steal::Empty => break None,
           }
         })
-        .collect();
-
-        batch.into_iter().for_each(|(i, tx)| {
+        .for_each(|(i, tx)| {
           tx.send(i).ok();
         });
       });
@@ -41,7 +39,7 @@ pub async fn push_echo(i: u64) -> u64 {
 }
 
 pub async fn bench_batching(batch_size: &u64) {
-  let batch: Vec<u64> = join_all((0..*batch_size).map(|i| push_echo(i))).await;
+  let batch: Vec<u64> = join_all((0..*batch_size).map(push_echo)).await;
 
   assert_eq!(batch, (0..*batch_size).collect::<Vec<u64>>())
 }

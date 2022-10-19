@@ -139,7 +139,7 @@ where
   where
     F: Fn(T::Task) -> T::Value + Sync,
   {
-    self.tasks().into_iter().for_each(|task_ref| unsafe {
+    self.tasks().iter().for_each(|task_ref| unsafe {
       let task = task_ref.take_task_unchecked();
       task_ref.resolve_unchecked(op(task));
     });

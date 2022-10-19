@@ -29,7 +29,7 @@ pub async fn push_echo(i: u64) -> u64 {
 }
 
 pub async fn bench_batching(batch_size: &u64) {
-  let batch: Vec<u64> = join_all((0..*batch_size).map(|i| push_echo(i))).await;
+  let batch: Vec<u64> = join_all((0..*batch_size).map(push_echo)).await;
 
   assert_eq!(batch, (0..*batch_size).collect::<Vec<u64>>());
 }
