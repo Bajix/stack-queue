@@ -93,7 +93,7 @@ where
   /// Set value in receiver and wake if the receiver isn't already dropped. This takes &self because
   /// [`TaskRef`] by design is never dropped
   pub(crate) unsafe fn resolve_unchecked(&self, value: T::Value) {
-    let state = self.state.fetch_or(SETTING_VALUE, Ordering::AcqRel);
+    let state = self.state.fetch_or(SETTING_VALUE, Ordering::Acquire);
 
     if (state & RECEIVER_DROPPED).eq(&0) {
       let rx = &**self.rx.assume_init_ref();
@@ -246,7 +246,7 @@ where
 {
   fn drop(self: Pin<&mut Self>) {
     if let State::Batched(rx) = &self.state {
-      let mut state = rx.state().fetch_or(RECEIVER_DROPPED, Ordering::AcqRel);
+      let mut state = rx.state().fetch_or(RECEIVER_DROPPED, Ordering::Acquire);
 
       // This cannot be safely deallocated until after the value is set
       while state & SETTING_VALUE == SETTING_VALUE {
