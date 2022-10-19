@@ -1,7 +1,6 @@
 use std::{
   cell::UnsafeCell,
   fmt::Debug,
-  hash::Hash,
   mem::{needs_drop, MaybeUninit},
   ops::BitAnd,
   ptr::addr_of,
@@ -35,8 +34,8 @@ pub(crate) const MAX_BUFFER_LEN: usize = u16::MAX as usize;
 
 #[async_trait]
 pub trait TaskQueue: Send + Sync + Sized + 'static {
-  type Task: Send + Sync + Hash + PartialEq + Sized + 'static;
-  type Value: Send + Sync + Sized + Debug + 'static;
+  type Task: Send + Sync + Sized + 'static;
+  type Value: Send + Sync + Sized + 'static;
 
   fn queue() -> &'static LocalKey<StackQueue<Self>>;
 

@@ -44,6 +44,7 @@ where
 impl<T> PartialEq for TaskRef<T>
 where
   T: TaskQueue,
+  T::Task: PartialEq,
 {
   fn eq(&self, other: &Self) -> bool {
     self.task().eq(other.task())
