@@ -18,7 +18,7 @@ tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
 futures = "0.3.24"
-tokio = { version = "1", features = ["rt", "macros", "time"] }
+tokio = { version = "1", features = ["rt", "macros", "time", "rt-multi-thread"] }
 
 [lib]
 doctest = false

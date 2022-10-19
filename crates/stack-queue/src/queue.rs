@@ -220,8 +220,8 @@ mod test {
   use std::{thread::LocalKey, time::Duration};
 
   use async_t::async_trait;
-  use futures::future::join_all;
-  use tokio::time::sleep;
+  use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
+  use tokio::{task::yield_now, time::sleep};
 
   use super::{StackQueue, TaskQueue};
   use crate::assignment::{CompletionReceipt, PendingAssignment};
@@ -247,14 +247,16 @@ mod test {
     }
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread")]
+
   async fn it_process_tasks() {
     let batch: Vec<usize> = join_all((0..100).map(|i| EchoQueue::auto_batch(i))).await;
 
     assert_eq!(batch, (0..100).collect::<Vec<usize>>());
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread")]
+
   async fn it_cycles() {
     for i in 0..4096 {
       EchoQueue::auto_batch(i).await;
@@ -285,7 +287,8 @@ mod test {
     }
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread")]
+
   async fn it_has_drop_safety() {
     let handle = tokio::task::spawn(async {
       SlowQueue::auto_batch(0).await;
@@ -294,5 +297,55 @@ mod test {
     sleep(Duration::from_millis(1)).await;
 
     handle.abort();
+  }
+
+  struct YieldQueue;
+
+  #[async_trait]
+  impl TaskQueue for YieldQueue {
+    type Task = usize;
+    type Value = usize;
+
+    fn queue() -> &'static LocalKey<super::StackQueue<Self>> {
+      thread_local! {
+        static QUEUE: StackQueue<YieldQueue> = StackQueue::new();
+      }
+
+      &QUEUE
+    }
+
+    async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
+      let assignment = batch.into_assignment();
+
+      yield_now().await;
+
+      assignment.map(|val| val)
+    }
+  }
+
+  #[tokio::test(flavor = "multi_thread")]
+
+  async fn it_negotiates_receiver_drop() {
+    let tasks: FuturesUnordered<_> = (0..8)
+      .map(|_| {
+        tokio::task::spawn(async {
+          let tasks: FuturesUnordered<_> = (0..16384)
+            .map(|i| async move {
+              let handle = tokio::task::spawn(async move {
+                YieldQueue::auto_batch(i).await;
+              });
+
+              yield_now().await;
+
+              handle.abort()
+            })
+            .collect();
+
+          let _: Vec<_> = tasks.collect().await;
+        })
+      })
+      .collect::<FuturesUnordered<_>>();
+
+    tasks.collect::<Vec<_>>().await;
   }
 }
