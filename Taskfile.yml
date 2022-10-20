@@ -1,0 +1,68 @@
+version: "3"
+
+env:
+  TARGET: x86_64-apple-darwin
+
+sources:
+  - crates/stack-queue/**/*.rs
+
+tasks:
+  bench:
+    env:
+      RUSTFLAGS: "-C target-cpu=native"
+    cmds:
+      - cargo bench --profile release
+
+  flamegraph:
+    env:
+      RUSTFLAGS: "-C target-cpu=native"
+      CARGO_PROFILE_BENCH_DEBUG: true
+    cmds:
+      - cargo flamegraph --bench benchmarks --root -- stack_queue --bench
+
+  test-miri:
+    cmds:
+      - cargo miri test -Z build-std --target $TARGET -- --nocapture
+    sources:
+      - crates/stack-queue/**/*.rs
+    env:
+      MIRIFLAGS: -Zmiri-backtrace=full
+
+  test-loom:
+    cmds:
+      - cargo test -Z build-std --target $TARGET -- --nocapture
+    sources:
+      - crates/stack-queue/**/*.rs
+    env:
+      RUSTFLAGS: --cfg loom
+      LOOM_MAX_PREEMPTIONS: 10
+
+  test-sanitizer:
+    cmds:
+      - task: test-address-sanitizer
+      - task: test-thread-sanitizer
+      - task: test-leak-sanitizer
+
+  test-address-sanitizer:
+    cmds:
+      - cargo test -Z build-std --target $TARGET -- --nocapture
+    sources:
+      - crates/stack-queue/**/*.rs
+    ev:
+      RUSTFLAGS: -Z sanitizer=address
+
+  test-thread-sanitizer:
+    cmds:
+      - cargo test -Z build-std --target $TARGET -- --nocapture
+    sources:
+      - crates/stack-queue/**/*.rs
+    env:
+      RUSTFLAGS: -Z sanitizer=thread
+
+  test-leak-sanitizer:
+    cmds:
+      - cargo test -Z build-std --target $TARGET -- --nocapture
+    sources:
+      - crates/stack-queue/**/*.rs
+    env:
+      RUSTFLAGS: -Z sanitizer=leak
