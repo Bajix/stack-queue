@@ -5,6 +5,11 @@ members = [
   "crates/stack-queue"
 ]
 
+[profile.release]
+lto = "fat"
+opt-level = 3
+codegen-units = 1
+
 [profile.bench]
 lto = "fat"
 opt-level = 3
