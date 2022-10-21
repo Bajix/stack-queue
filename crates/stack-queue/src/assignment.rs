@@ -135,6 +135,22 @@ where
     unsafe { mem::transmute(self.queue().buffer.get_unchecked(self.task_range.clone())) }
   }
 
+  /// Resolve task assignment with an iterator where indexes align with tasks
+  pub fn resolve_with_iter<I>(self, iter: I) -> CompletionReceipt<T>
+  where
+    I: IntoIterator<Item = T::Value>,
+  {
+    self
+      .tasks()
+      .iter()
+      .zip(iter)
+      .for_each(|(task_ref, value)| unsafe {
+        task_ref.resolve_unchecked(value);
+      });
+
+    self.into_completion_receipt()
+  }
+
   /// Resolve task assignment by mapping each task into it's respective value
   pub fn map<F>(self, op: F) -> CompletionReceipt<T>
   where
