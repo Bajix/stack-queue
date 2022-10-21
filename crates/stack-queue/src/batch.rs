@@ -178,6 +178,7 @@ enum State<T: TaskQueue> {
   Received,
 }
 
+/// An automatically batched task
 #[pin_project(project = AutoBatchProj, PinnedDrop)]
 pub struct AutoBatch<T: TaskQueue, const N: usize = 2048>
 where
@@ -191,6 +192,7 @@ where
   T: TaskQueue,
   Int<N>: IsPowerOf2,
 {
+  /// Create a new auto batched task
   pub fn new(task: T::Task) -> Self {
     AutoBatch {
       state: State::Unbatched { task },

@@ -44,7 +44,7 @@ where
     unsafe { &*self.queue_ptr }
   }
 
-  // Converted into a bounded task assignment
+  /// Converted into a bounded task assignment
   pub fn into_assignment(self) -> TaskAssignment<T, N> {
     let phase_bit = active_phase_bit::<N>(&self.base_slot);
 
@@ -102,6 +102,7 @@ where
   }
 }
 
+/// An assignment of a task range to be processed
 pub struct TaskAssignment<T: TaskQueue, const N: usize = 2048>
 where
   Int<N>: IsPowerOf2,
@@ -129,12 +130,12 @@ where
     unsafe { &*self.queue_ptr }
   }
 
-  // A transmuted slice of the assigned task range
+  /// A slice of the assigned task range
   pub fn tasks(&self) -> &[TaskRef<T>] {
     unsafe { mem::transmute(self.queue().buffer.get_unchecked(self.task_range.clone())) }
   }
 
-  // Map each task into it's respective value and resolve, in parallel
+  /// Resolve task assignment by mapping each task into it's respective value
   pub fn map<F>(self, op: F) -> CompletionReceipt<T>
   where
     F: Fn(T::Task) -> T::Value + Sync,
@@ -180,8 +181,7 @@ where
 unsafe impl<T> Send for TaskAssignment<T> where T: TaskQueue {}
 unsafe impl<T> Sync for TaskAssignment<T> where T: TaskQueue {}
 
-// A type-state proof of completion for a task assignment. This ensures all task are eventually
-// processed while not precluding the usage of [`tokio::task::spawn_blocking`]
+/// A type-state proof of completion for a task assignment
 pub struct CompletionReceipt<T: TaskQueue>(PhantomData<T>);
 
 impl<T> CompletionReceipt<T>
