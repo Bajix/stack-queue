@@ -1,18 +1,18 @@
+use std::thread;
+
 use futures::future::join_all;
-use kanal::{unbounded_async, AsyncSender};
-use tokio::{runtime::Handle, sync::oneshot};
+use kanal::{unbounded, Sender};
+use tokio::sync::oneshot;
 
-fn make_reactor() -> AsyncSender<(u64, oneshot::Sender<u64>)> {
-  let (tx, rx) = unbounded_async::<(u64, oneshot::Sender<u64>)>();
+fn make_reactor() -> Sender<(u64, oneshot::Sender<u64>)> {
+  let (tx, rx) = unbounded::<(u64, oneshot::Sender<u64>)>();
 
-  Handle::current().spawn(async move {
-    loop {
-      if let Ok((i, tx)) = rx.recv().await {
+  thread::spawn(move || loop {
+    if let Ok((i, tx)) = rx.recv() {
+      tx.send(i).ok();
+
+      while let Ok(Some((i, tx))) = rx.try_recv() {
         tx.send(i).ok();
-
-        while let Ok(Some((i, tx))) = rx.try_recv() {
-          tx.send(i).ok();
-        }
       }
     }
   });
@@ -22,12 +22,12 @@ fn make_reactor() -> AsyncSender<(u64, oneshot::Sender<u64>)> {
 
 pub async fn push_echo(i: u64) -> u64 {
   thread_local! {
-    static QUEUE: AsyncSender<(u64, oneshot::Sender<u64>)> = make_reactor();
+    static QUEUE: Sender<(u64, oneshot::Sender<u64>)> = make_reactor();
   }
 
   let (tx, rx) = oneshot::channel();
 
-  QUEUE.with(|queue_tx| queue_tx.try_send((i, tx)).ok());
+  QUEUE.with(|queue| queue.send((i, tx)).ok());
 
   rx.await.unwrap()
 }
