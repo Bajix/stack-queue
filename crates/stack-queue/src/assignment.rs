@@ -13,10 +13,7 @@ use crate::{
   task::TaskRef,
 };
 
-/// The responsibilty to process a yet to be assigned set of tasks on the queue. Once converted
-/// into a [`TaskAssignment`] the task range responsible for processing will be bounded and further
-/// tasks enqueued will be of a new batch. Assignment of a task range can be deferred until
-/// resources such as database connections are ready as a way to process tasks in larger batches.
+/// The responsibilty to process a yet to be assigned set of tasks on the queue.
 pub struct PendingAssignment<T: TaskQueue, const N: usize = 2048>
 where
   Int<N>: IsPowerOf2,
@@ -44,7 +41,10 @@ where
     unsafe { &*self.queue_ptr }
   }
 
-  /// Converted into a bounded task assignment
+  /// By converting into a [`TaskAssignment`] the task range responsible for processing will be
+  /// bounded and further tasks enqueued will be of a new batch. Assignment of a task range can be
+  /// deferred until resources such as database connections are ready as a way to process tasks in
+  /// larger batches. This operation is constant time and wait-free
   pub fn into_assignment(self) -> TaskAssignment<T, N> {
     let phase_bit = active_phase_bit::<N>(&self.base_slot);
 

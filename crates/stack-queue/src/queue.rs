@@ -17,7 +17,7 @@ use tokio::runtime::Handle;
 use crate::{
   assignment::{CompletionReceipt, PendingAssignment},
   helpers::*,
-  task::{AutoBatch, Receiver, TaskRef},
+  task::{AutoBatchedTask, Receiver, TaskRef},
 };
 
 #[cfg(target_pointer_width = "64")]
@@ -39,8 +39,8 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
 
   fn queue() -> &'static LocalKey<StackQueue<Self>>;
 
-  fn auto_batch(task: Self::Task) -> AutoBatch<Self> {
-    AutoBatch::new(task)
+  fn auto_batch(task: Self::Task) -> AutoBatchedTask<Self> {
+    AutoBatchedTask::new(task)
   }
 
   async fn batch_process(assignment: PendingAssignment<Self>) -> CompletionReceipt<Self>;
