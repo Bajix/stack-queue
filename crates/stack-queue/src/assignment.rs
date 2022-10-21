@@ -10,7 +10,7 @@ use bit_bounds::{usize::Int, IsPowerOf2};
 use crate::{
   helpers::{active_phase_bit, one_shifted, slot_index},
   queue::{Inner, TaskQueue, INDEX_SHIFT},
-  TaskRef,
+  task::TaskRef,
 };
 
 /// The responsibilty to process a yet to be assigned set of tasks on the queue. Once converted

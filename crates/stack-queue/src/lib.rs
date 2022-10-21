@@ -2,11 +2,9 @@
 #![feature(type_alias_impl_trait)]
 #![feature(generic_const_exprs)]
 
-mod assignment;
-mod batch;
+pub mod assignment;
 mod helpers;
 mod queue;
+pub mod task;
 
-pub use assignment::{CompletionReceipt, PendingAssignment, TaskAssignment};
-pub use batch::{AutoBatch, TaskRef};
 pub use queue::{StackQueue, TaskQueue};

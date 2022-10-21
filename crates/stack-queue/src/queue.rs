@@ -16,8 +16,8 @@ use tokio::runtime::Handle;
 
 use crate::{
   assignment::{CompletionReceipt, PendingAssignment},
-  batch::{AutoBatch, Receiver, TaskRef},
   helpers::*,
+  task::{AutoBatch, Receiver, TaskRef},
 };
 
 #[cfg(target_pointer_width = "64")]

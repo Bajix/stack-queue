@@ -2,7 +2,10 @@ use std::thread::LocalKey;
 
 use async_t::async_trait;
 use futures::future::join_all;
-use stack_queue::{CompletionReceipt, PendingAssignment, StackQueue, TaskQueue};
+use stack_queue::{
+  assignment::{CompletionReceipt, PendingAssignment},
+  StackQueue, TaskQueue,
+};
 
 struct EchoQueue;
 
