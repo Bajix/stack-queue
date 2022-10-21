@@ -16,6 +16,7 @@ futures = "0.3.24"
 swap-queue = "1.1.0"
 tokio = { version = "1", features = ["rt", "macros", "time"] }
 stack-queue = { path = "../stack-queue" }
+kanal = { git = "https://github.com/fereidani/kanal" }
 
 [dev-dependencies]
 criterion = { version = "0.4.0", features = ["async_tokio", "html_reports"] }

@@ -36,6 +36,15 @@ fn criterion_benchmark(c: &mut Criterion) {
     );
 
     batching_tests.bench_with_input(
+      BenchmarkId::new("kanal", batch_size),
+      &batch_size,
+      |b, batch_size| {
+        b.to_async(&rt)
+          .iter(|| echo_batched::kanal::bench_batching(batch_size))
+      },
+    );
+
+    batching_tests.bench_with_input(
       BenchmarkId::new("stack-queue", batch_size),
       &batch_size,
       |b, batch_size| {
