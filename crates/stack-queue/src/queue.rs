@@ -90,6 +90,7 @@ where
   T: TaskQueue,
   Int<N>: IsPowerOf2,
 {
+  #[allow(clippy::new_without_default)]
   pub fn new() -> Self
   where
     Assert<{ N >= MIN_BUFFER_LEN }>: IsTrue,
@@ -149,11 +150,11 @@ where
     unsafe { *self.occupancy.get() = occupancy };
   }
 
-  fn write_with<F>(&self, index: &usize, write_with: F)
+  unsafe fn write_with<F>(&self, index: &usize, write_with: F)
   where
     F: FnOnce(*const AtomicUsize) -> (T::Task, *const Receiver<T>),
   {
-    let task_ref = unsafe { self.inner.buffer.get_unchecked(*index) };
+    let task_ref = self.inner.buffer.get_unchecked(*index);
     let (task, rx) = write_with(task_ref.state_ptr());
     task_ref.set_task(task, rx);
   }
@@ -177,7 +178,9 @@ where
       self.check_regional_occupancy(&write_index)?;
     }
 
-    self.write_with(&write_index, write_with);
+    unsafe {
+      self.write_with(&write_index, write_with);
+    }
 
     let base_slot = self
       .inner

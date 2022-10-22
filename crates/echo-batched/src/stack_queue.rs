@@ -1,12 +1,11 @@
-use std::thread::LocalKey;
-
 use async_t::async_trait;
 use futures::future::join_all;
 use stack_queue::{
   assignment::{CompletionReceipt, PendingAssignment},
-  LocalQueue, StackQueue, TaskQueue,
+  LocalQueue, TaskQueue,
 };
 
+#[derive(LocalQueue)]
 struct EchoQueue;
 
 #[async_trait]
@@ -16,16 +15,6 @@ impl TaskQueue for EchoQueue {
 
   async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
     batch.into_assignment().map(|val| val)
-  }
-}
-
-impl LocalQueue for EchoQueue {
-  fn queue() -> &'static LocalKey<StackQueue<Self>> {
-    thread_local! {
-      static QUEUE: StackQueue<EchoQueue> = StackQueue::new();
-    }
-
-    &QUEUE
   }
 }
 

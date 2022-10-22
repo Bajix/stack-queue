@@ -84,19 +84,21 @@ where
     self.state() as *const AtomicUsize
   }
 
+  #[allow(clippy::mut_from_ref)]
   #[inline(always)]
-  fn state_mut(&self) -> &mut usize {
-    unsafe { (&mut *self.state.get()).get_mut() }
+  unsafe fn state_mut(&self) -> &mut usize {
+    (*self.state.get()).get_mut()
   }
 
   #[inline(always)]
   pub(crate) fn rx(&self) -> &Receiver<T> {
-    unsafe { &**(&*self.rx.get()).assume_init_ref() }
+    unsafe { &**(*self.rx.get()).assume_init_ref() }
   }
 
+  #[allow(clippy::mut_from_ref)]
   #[inline(always)]
-  fn rx_mut(&self) -> &mut MaybeUninit<*const Receiver<T>> {
-    unsafe { &mut *self.rx.get() }
+  unsafe fn rx_mut(&self) -> &mut MaybeUninit<*const Receiver<T>> {
+    &mut *self.rx.get()
   }
 
   #[inline(always)]
@@ -104,12 +106,13 @@ where
     unsafe { (*self.task.get()).assume_init_ref() }
   }
 
+  #[allow(clippy::mut_from_ref)]
   #[inline(always)]
-  fn task_mut(&self) -> &mut MaybeUninit<T::Task> {
-    unsafe { &mut *self.task.get() }
+  unsafe fn task_mut(&self) -> &mut MaybeUninit<T::Task> {
+    &mut *self.task.get()
   }
 
-  pub(crate) fn set_task(&self, task: T::Task, rx: *const Receiver<T>) {
+  pub(crate) unsafe fn set_task(&self, task: T::Task, rx: *const Receiver<T>) {
     *self.state_mut() = 0;
     self.rx_mut().write(rx);
     self.task_mut().write(task);
@@ -306,7 +309,7 @@ where
       }
 
       if (state & VALUE_SET).eq(&VALUE_SET) {
-        unsafe { (&mut *rx.value.get()).assume_init_drop() }
+        unsafe { (*rx.value.get()).assume_init_drop() }
       }
     }
   }
