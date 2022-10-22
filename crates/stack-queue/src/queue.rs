@@ -1,7 +1,7 @@
 use std::{
+  array,
   cell::UnsafeCell,
   fmt::Debug,
-  mem::{needs_drop, MaybeUninit},
   ops::BitAnd,
   ptr::addr_of,
   sync::atomic::{AtomicUsize, Ordering},
@@ -11,7 +11,7 @@ use std::{
 use async_t::async_trait;
 use bit_bounds::{usize::Int, IsPowerOf2};
 use cache_padded::CachePadded;
-use const_assert::{Assert, IsFalse, IsTrue};
+use const_assert::{Assert, IsTrue};
 use tokio::runtime::Handle;
 
 use crate::{
@@ -52,19 +52,20 @@ where
 {
   pub(crate) slot: CachePadded<AtomicUsize>,
   pub(crate) occupancy: CachePadded<AtomicUsize>,
-  pub(crate) buffer: [UnsafeCell<MaybeUninit<TaskRef<T>>>; N],
+  pub(crate) buffer: [TaskRef<T>; N],
 }
 impl<T: TaskQueue, const N: usize> Inner<T, N>
 where
   T: TaskQueue,
   Int<N>: IsPowerOf2,
 {
-  const fn new() -> Self {
+  fn new() -> Self {
+    let buffer = array::from_fn(|_| TaskRef::new_uninit());
+
     Inner {
       slot: CachePadded::new(AtomicUsize::new(0)),
       occupancy: CachePadded::new(AtomicUsize::new(0)),
-      #[allow(clippy::uninit_assumed_init)]
-      buffer: unsafe { MaybeUninit::uninit().assume_init() },
+      buffer,
     }
   }
 }
@@ -87,11 +88,10 @@ where
   T: TaskQueue,
   Int<N>: IsPowerOf2,
 {
-  pub const fn new() -> Self
+  pub fn new() -> Self
   where
     Assert<{ N >= MIN_BUFFER_LEN }>: IsTrue,
     Assert<{ N <= MAX_BUFFER_LEN }>: IsTrue,
-    Assert<{ needs_drop::<T::Task>() }>: IsFalse,
   {
     StackQueue {
       slot: CachePadded::new(UnsafeCell::new(N << INDEX_SHIFT)),
@@ -151,11 +151,9 @@ where
   where
     F: FnOnce(*const AtomicUsize) -> (T::Task, *const Receiver<T>),
   {
-    let cell = unsafe { &mut *self.inner.buffer.get_unchecked(*index).get() };
-    cell.write(TaskRef::new_uninit());
-    let task_ref = unsafe { cell.assume_init_mut() };
+    let task_ref = unsafe { self.inner.buffer.get_unchecked(*index) };
     let (task, rx) = write_with(task_ref.state_ptr());
-    task_ref.init(task, rx);
+    task_ref.set_task(task, rx);
   }
 
   #[inline(always)]

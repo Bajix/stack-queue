@@ -27,8 +27,8 @@ pub(crate) const RECEIVER_DROPPED: usize = 1 << 2;
 
 /// A raw pointer backed reference to the pinned receiver of an enqueued [`AutoBatchedTask`]
 pub struct TaskRef<T: TaskQueue> {
-  state: AtomicUsize,
-  rx: MaybeUninit<*const Receiver<T>>,
+  state: UnsafeCell<AtomicUsize>,
+  rx: UnsafeCell<MaybeUninit<*const Receiver<T>>>,
   task: UnsafeCell<MaybeUninit<T::Task>>,
 }
 
@@ -68,25 +68,51 @@ where
 {
   pub(crate) fn new_uninit() -> Self {
     TaskRef {
-      state: AtomicUsize::new(0),
-      rx: MaybeUninit::uninit(),
+      state: UnsafeCell::new(AtomicUsize::new(0)),
+      rx: UnsafeCell::new(MaybeUninit::uninit()),
       task: UnsafeCell::new(MaybeUninit::uninit()),
     }
   }
 
   #[inline(always)]
-  pub(crate) fn state_ptr(&self) -> *const AtomicUsize {
-    addr_of!(self.state)
+  pub(crate) fn state(&self) -> &AtomicUsize {
+    unsafe { &*self.state.get() }
   }
 
-  pub(crate) fn init(&mut self, task: T::Task, rx: *const Receiver<T>) {
-    self.rx.write(rx);
-    self.task.get_mut().write(task);
+  #[inline(always)]
+  pub(crate) fn state_ptr(&self) -> *const AtomicUsize {
+    self.state() as *const AtomicUsize
+  }
+
+  #[inline(always)]
+  fn state_mut(&self) -> &mut usize {
+    unsafe { (&mut *self.state.get()).get_mut() }
+  }
+
+  #[inline(always)]
+  pub(crate) fn rx(&self) -> &Receiver<T> {
+    unsafe { &**(&*self.rx.get()).assume_init_ref() }
+  }
+
+  #[inline(always)]
+  fn rx_mut(&self) -> &mut MaybeUninit<*const Receiver<T>> {
+    unsafe { &mut *self.rx.get() }
   }
 
   #[inline(always)]
   pub fn task(&self) -> &T::Task {
     unsafe { (*self.task.get()).assume_init_ref() }
+  }
+
+  #[inline(always)]
+  fn task_mut(&self) -> &mut MaybeUninit<T::Task> {
+    unsafe { &mut *self.task.get() }
+  }
+
+  pub(crate) fn set_task(&self, task: T::Task, rx: *const Receiver<T>) {
+    *self.state_mut() = 0;
+    self.rx_mut().write(rx);
+    self.task_mut().write(task);
   }
 
   #[inline(always)]
@@ -97,14 +123,14 @@ where
   /// Set value in receiver and wake if the receiver isn't already dropped. This takes &self because
   /// [`TaskRef`] by design is never dropped
   pub(crate) unsafe fn resolve_unchecked(&self, value: T::Value) {
-    let state = self.state.fetch_or(SETTING_VALUE, Ordering::AcqRel);
+    let state = self.state().fetch_or(SETTING_VALUE, Ordering::AcqRel);
 
     if (state & RECEIVER_DROPPED).eq(&0) {
-      let rx = &**self.rx.assume_init_ref();
+      let rx = self.rx();
       *rx.value.get() = MaybeUninit::new(value);
       rx.waker.wake_by_ref();
       self
-        .state
+        .state()
         .fetch_xor(SETTING_VALUE | VALUE_SET, Ordering::Release);
     }
   }

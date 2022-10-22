@@ -8,7 +8,7 @@ use std::{
 use bit_bounds::{usize::Int, IsPowerOf2};
 
 use crate::{
-  helpers::{active_phase_bit, one_shifted, slot_index},
+  helpers::{active_phase_bit, one_shifted},
   queue::{Inner, TaskQueue, INDEX_SHIFT},
   task::TaskRef,
 };
@@ -41,17 +41,13 @@ where
     unsafe { &*self.queue_ptr }
   }
 
-  /// By converting into a [`TaskAssignment`] the task range responsible for processing will be
-  /// bounded and further tasks enqueued will be of a new batch. Assignment of a task range can be
-  /// deferred until resources such as database connections are ready as a way to process tasks in
-  /// larger batches. This operation is constant time and wait-free
-  pub fn into_assignment(self) -> TaskAssignment<T, N> {
+  fn set_assignment_bounds(&self) -> Range<usize> {
     let phase_bit = active_phase_bit::<N>(&self.base_slot);
 
     let end_slot = self.queue().slot.fetch_xor(phase_bit, Ordering::Relaxed);
 
     // If the N bit has changed it means the queue has wrapped around the beginning
-    let task_range = if (N << INDEX_SHIFT).bitand(self.base_slot ^ end_slot).eq(&0) {
+    if (N << INDEX_SHIFT).bitand(self.base_slot ^ end_slot).eq(&0) {
       // (base_slot >> INDEX_SHIFT) extracts the current index
       // Because N is a power of 2, N - 1 will be a mask with N bits set
       // For all values N, index & (N - 1) is always index % N however with fewer instructions
@@ -67,22 +63,20 @@ where
       // around to the beginning, and so this batch goes to the end and the queue will create a new
       // task batch while ignoring that the now inactive phase bit was changed.
       (self.base_slot >> INDEX_SHIFT) & (N - 1)..N
-    };
+    }
+  }
 
+  /// By converting into a [`TaskAssignment`] the task range responsible for processing will be
+  /// bounded and further tasks enqueued will be of a new batch. Assignment of a task range can be
+  /// deferred until resources such as database connections are ready as a way to process tasks in
+  /// larger batches. This operation is constant time and wait-free
+  pub fn into_assignment(self) -> TaskAssignment<T, N> {
+    let task_range = self.set_assignment_bounds();
     let queue_ptr = self.queue_ptr;
 
     mem::forget(self);
 
     TaskAssignment::new(task_range, queue_ptr)
-  }
-
-  fn deoccupy_buffer(&self) {
-    let index = slot_index::<N>(&self.base_slot);
-
-    self
-      .queue()
-      .occupancy
-      .fetch_sub(one_shifted::<N>(&index), Ordering::Relaxed);
   }
 }
 
@@ -97,7 +91,10 @@ where
   Int<N>: IsPowerOf2,
 {
   fn drop(&mut self) {
-    self.deoccupy_buffer();
+    let task_range = self.set_assignment_bounds();
+    let queue_ptr = self.queue_ptr;
+
+    TaskAssignment::new(task_range, queue_ptr);
   }
 }
 
@@ -131,7 +128,7 @@ where
 
   /// A slice of the assigned task range
   pub fn tasks(&self) -> &[TaskRef<T>] {
-    unsafe { mem::transmute(self.queue().buffer.get_unchecked(self.task_range.clone())) }
+    unsafe { self.queue().buffer.get_unchecked(self.task_range.clone()) }
   }
 
   /// Resolve task assignment with an iterator where indexes align with tasks
@@ -185,6 +182,11 @@ where
   Int<N>: IsPowerOf2,
 {
   fn drop(&mut self) {
+    self
+      .tasks()
+      .iter()
+      .for_each(|task_ref| unsafe { drop(task_ref.take_task_unchecked()) });
+
     self.deoccupy_buffer();
   }
 }
