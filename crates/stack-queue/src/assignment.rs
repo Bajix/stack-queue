@@ -78,12 +78,11 @@ where
 
   fn deoccupy_buffer(&self) {
     let index = slot_index::<N>(&self.base_slot);
-    let shifted_sub = one_shifted::<N>(&index);
 
     self
       .queue()
       .occupancy
-      .fetch_sub(shifted_sub, Ordering::Relaxed);
+      .fetch_sub(one_shifted::<N>(&index), Ordering::Relaxed);
   }
 }
 
@@ -165,12 +164,10 @@ where
   }
 
   fn deoccupy_buffer(&self) {
-    let shifted_sub = one_shifted::<N>(&self.task_range.start);
-
     self
       .queue()
       .occupancy
-      .fetch_sub(shifted_sub, Ordering::Relaxed);
+      .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Relaxed);
   }
 
   fn into_completion_receipt(self) -> CompletionReceipt<T> {
