@@ -11,7 +11,6 @@ use std::{
 use async_t::async_trait;
 use bit_bounds::{usize::Int, IsPowerOf2};
 use cache_padded::CachePadded;
-use const_assert::{Assert, IsTrue};
 use tokio::runtime::Handle;
 
 use crate::{
@@ -24,34 +23,28 @@ use crate::{
 pub(crate) const INDEX_SHIFT: usize = 32;
 #[cfg(target_pointer_width = "32")]
 pub(crate) const INDEX_SHIFT: usize = 16;
-
-pub(crate) const MIN_BUFFER_LEN: usize = 256;
-
-#[cfg(target_pointer_width = "64")]
-pub(crate) const MAX_BUFFER_LEN: usize = u32::MAX as usize;
-#[cfg(target_pointer_width = "32")]
-pub(crate) const MAX_BUFFER_LEN: usize = u16::MAX as usize;
-
 #[async_trait]
 pub trait TaskQueue: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
   type Value: Send + Sync + Sized + 'static;
 
-  async fn batch_process(assignment: PendingAssignment<Self>) -> CompletionReceipt<Self>;
+  async fn batch_process<const N: usize>(
+    assignment: PendingAssignment<Self, N>,
+  ) -> CompletionReceipt<Self>;
 }
 
-pub trait LocalQueue: TaskQueue {
-  fn queue() -> &'static LocalKey<StackQueue<Self>>;
+pub trait LocalQueue<const N: usize>: TaskQueue
+where
+  Int<N>: IsPowerOf2,
+{
+  fn queue() -> &'static LocalKey<StackQueue<Self, N>>;
 
-  fn auto_batch(task: Self::Task) -> AutoBatchedTask<Self> {
+  fn auto_batch(task: Self::Task) -> AutoBatchedTask<Self, N> {
     AutoBatchedTask::new(task)
   }
 }
 
-pub(crate) struct Inner<T: TaskQueue, const N: usize = 2048>
-where
-  Int<N>: IsPowerOf2,
-{
+pub(crate) struct Inner<T: TaskQueue, const N: usize = 2048> {
   pub(crate) slot: CachePadded<AtomicUsize>,
   pub(crate) occupancy: CachePadded<AtomicUsize>,
   pub(crate) buffer: [TaskRef<T>; N],
@@ -85,24 +78,25 @@ where
   inner: Inner<T, N>,
 }
 
-impl<T: TaskQueue, const N: usize> StackQueue<T, N>
+impl<T: TaskQueue, const N: usize> Default for StackQueue<T, N>
 where
   T: TaskQueue,
   Int<N>: IsPowerOf2,
 {
-  #[allow(clippy::new_without_default)]
-  pub fn new() -> Self
-  where
-    Assert<{ N >= MIN_BUFFER_LEN }>: IsTrue,
-    Assert<{ N <= MAX_BUFFER_LEN }>: IsTrue,
-  {
+  fn default() -> Self {
     StackQueue {
       slot: CachePadded::new(UnsafeCell::new(N << INDEX_SHIFT)),
       occupancy: CachePadded::new(UnsafeCell::new(0)),
       inner: Inner::new(),
     }
   }
+}
 
+impl<T: TaskQueue, const N: usize> StackQueue<T, N>
+where
+  T: TaskQueue,
+  Int<N>: IsPowerOf2,
+{
   #[inline(always)]
   fn current_write_index(&self) -> usize {
     // This algorithm can utilize an UnsafeCell for the index counter because where the current task
@@ -231,6 +225,7 @@ mod test {
   use crate::assignment::{CompletionReceipt, PendingAssignment};
 
   #[derive(LocalQueue)]
+  #[local_queue(buffer_size = 1024)]
   struct EchoQueue;
 
   #[async_trait]
@@ -238,7 +233,9 @@ mod test {
     type Task = usize;
     type Value = usize;
 
-    async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
+    async fn batch_process<const N: usize>(
+      batch: PendingAssignment<Self, N>,
+    ) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
       assignment.map(|val| val)
     }
@@ -268,7 +265,9 @@ mod test {
     type Task = usize;
     type Value = usize;
 
-    async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
+    async fn batch_process<const N: usize>(
+      batch: PendingAssignment<Self, N>,
+    ) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
 
       sleep(Duration::from_millis(50)).await;
@@ -297,7 +296,9 @@ mod test {
     type Task = usize;
     type Value = usize;
 
-    async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
+    async fn batch_process<const N: usize>(
+      batch: PendingAssignment<Self, N>,
+    ) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
 
       yield_now().await;

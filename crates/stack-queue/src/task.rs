@@ -210,7 +210,7 @@ enum State<T: TaskQueue> {
 
 /// An automatically batched task
 #[pin_project(project = AutoBatchProj, PinnedDrop)]
-pub struct AutoBatchedTask<T: LocalQueue, const N: usize = 2048>
+pub struct AutoBatchedTask<T: LocalQueue<N>, const N: usize = 2048>
 where
   Int<N>: IsPowerOf2,
 {
@@ -219,7 +219,7 @@ where
 
 impl<T, const N: usize> AutoBatchedTask<T, N>
 where
-  T: LocalQueue,
+  T: LocalQueue<N>,
   Int<N>: IsPowerOf2,
 {
   /// Create a new auto batched task
@@ -232,7 +232,7 @@ where
 
 impl<T, const N: usize> Future for AutoBatchedTask<T, N>
 where
-  T: LocalQueue,
+  T: LocalQueue<N>,
   Int<N>: IsPowerOf2,
 {
   type Output = T::Value;
@@ -268,7 +268,7 @@ where
         }) {
           Ok(Some(assignment)) => {
             tokio::task::spawn(async move {
-              T::batch_process(assignment).await;
+              T::batch_process::<N>(assignment).await;
             });
           }
           Err(QueueFull) => {
@@ -295,7 +295,7 @@ where
 #[pinned_drop]
 impl<T, const N: usize> PinnedDrop for AutoBatchedTask<T, N>
 where
-  T: LocalQueue,
+  T: LocalQueue<N>,
   Int<N>: IsPowerOf2,
 {
   fn drop(self: Pin<&mut Self>) {

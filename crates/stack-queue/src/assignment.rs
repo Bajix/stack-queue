@@ -5,8 +5,6 @@ use std::{
   sync::atomic::Ordering,
 };
 
-use bit_bounds::{usize::Int, IsPowerOf2};
-
 use crate::{
   helpers::{active_phase_bit, one_shifted},
   queue::{Inner, TaskQueue, INDEX_SHIFT},
@@ -14,10 +12,7 @@ use crate::{
 };
 
 /// The responsibilty to process a yet to be assigned set of tasks on the queue.
-pub struct PendingAssignment<T: TaskQueue, const N: usize = 2048>
-where
-  Int<N>: IsPowerOf2,
-{
+pub struct PendingAssignment<T: TaskQueue, const N: usize> {
   base_slot: usize,
   queue_ptr: *const Inner<T, N>,
 }
@@ -25,7 +20,6 @@ where
 impl<T, const N: usize> PendingAssignment<T, N>
 where
   T: TaskQueue,
-  Int<N>: IsPowerOf2,
 {
   pub(crate) fn new(base_slot: usize, queue_ptr: *const Inner<T, N>) -> Self {
     PendingAssignment {
@@ -82,13 +76,12 @@ where
 
 // This is safe because queue_ptr is guaranteed to be immovable and non-null while
 // references exist
-unsafe impl<T> Send for PendingAssignment<T> where T: TaskQueue {}
-unsafe impl<T> Sync for PendingAssignment<T> where T: TaskQueue {}
+unsafe impl<T, const N: usize> Send for PendingAssignment<T, N> where T: TaskQueue {}
+unsafe impl<T, const N: usize> Sync for PendingAssignment<T, N> where T: TaskQueue {}
 
 impl<T, const N: usize> Drop for PendingAssignment<T, N>
 where
   T: TaskQueue,
-  Int<N>: IsPowerOf2,
 {
   fn drop(&mut self) {
     let task_range = self.set_assignment_bounds();
@@ -99,10 +92,7 @@ where
 }
 
 /// An assignment of a task range to be processed
-pub struct TaskAssignment<T: TaskQueue, const N: usize = 2048>
-where
-  Int<N>: IsPowerOf2,
-{
+pub struct TaskAssignment<T: TaskQueue, const N: usize> {
   task_range: Range<usize>,
   queue_ptr: *const Inner<T, N>,
 }
@@ -110,7 +100,6 @@ where
 impl<T, const N: usize> TaskAssignment<T, N>
 where
   T: TaskQueue,
-  Int<N>: IsPowerOf2,
 {
   fn new(task_range: Range<usize>, queue_ptr: *const Inner<T, N>) -> Self {
     TaskAssignment {
@@ -179,7 +168,6 @@ where
 impl<T, const N: usize> Drop for TaskAssignment<T, N>
 where
   T: TaskQueue,
-  Int<N>: IsPowerOf2,
 {
   fn drop(&mut self) {
     self
@@ -193,8 +181,8 @@ where
 
 // This is safe because queue_ptr is guaranteed to be immovable and non-null while
 // references exist
-unsafe impl<T> Send for TaskAssignment<T> where T: TaskQueue {}
-unsafe impl<T> Sync for TaskAssignment<T> where T: TaskQueue {}
+unsafe impl<T, const N: usize> Send for TaskAssignment<T, N> where T: TaskQueue {}
+unsafe impl<T, const N: usize> Sync for TaskAssignment<T, N> where T: TaskQueue {}
 
 /// A type-state proof of completion for a task assignment
 pub struct CompletionReceipt<T: TaskQueue>(PhantomData<T>);

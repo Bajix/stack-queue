@@ -13,7 +13,9 @@ impl TaskQueue for EchoQueue {
   type Task = u64;
   type Value = u64;
 
-  async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
+  async fn batch_process<const N: usize>(
+    batch: PendingAssignment<Self, N>,
+  ) -> CompletionReceipt<Self> {
     batch.into_assignment().map(|val| val)
   }
 }
