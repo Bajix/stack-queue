@@ -37,13 +37,15 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
   type Value: Send + Sync + Sized + 'static;
 
+  async fn batch_process(assignment: PendingAssignment<Self>) -> CompletionReceipt<Self>;
+}
+
+pub trait LocalQueue: TaskQueue {
   fn queue() -> &'static LocalKey<StackQueue<Self>>;
 
   fn auto_batch(task: Self::Task) -> AutoBatchedTask<Self> {
     AutoBatchedTask::new(task)
   }
-
-  async fn batch_process(assignment: PendingAssignment<Self>) -> CompletionReceipt<Self>;
 }
 
 pub(crate) struct Inner<T: TaskQueue, const N: usize = 2048>
@@ -221,7 +223,7 @@ mod test {
   use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
   use tokio::{task::yield_now, time::sleep};
 
-  use super::{StackQueue, TaskQueue};
+  use super::{LocalQueue, StackQueue, TaskQueue};
   use crate::assignment::{CompletionReceipt, PendingAssignment};
 
   struct EchoQueue;
@@ -231,17 +233,19 @@ mod test {
     type Task = usize;
     type Value = usize;
 
+    async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
+      let assignment = batch.into_assignment();
+      assignment.map(|val| val)
+    }
+  }
+
+  impl LocalQueue for EchoQueue {
     fn queue() -> &'static LocalKey<super::StackQueue<Self>> {
       thread_local! {
         static QUEUE: StackQueue<EchoQueue> = StackQueue::new();
       }
 
       &QUEUE
-    }
-
-    async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
-      let assignment = batch.into_assignment();
-      assignment.map(|val| val)
     }
   }
 
@@ -268,20 +272,22 @@ mod test {
     type Task = usize;
     type Value = usize;
 
-    fn queue() -> &'static LocalKey<super::StackQueue<Self>> {
-      thread_local! {
-        static QUEUE: StackQueue<SlowQueue> = StackQueue::new();
-      }
-
-      &QUEUE
-    }
-
     async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
 
       sleep(Duration::from_millis(50)).await;
 
       assignment.map(|val| val)
+    }
+  }
+
+  impl LocalQueue for SlowQueue {
+    fn queue() -> &'static LocalKey<super::StackQueue<Self>> {
+      thread_local! {
+        static QUEUE: StackQueue<SlowQueue> = StackQueue::new();
+      }
+
+      &QUEUE
     }
   }
 
@@ -304,20 +310,22 @@ mod test {
     type Task = usize;
     type Value = usize;
 
-    fn queue() -> &'static LocalKey<super::StackQueue<Self>> {
-      thread_local! {
-        static QUEUE: StackQueue<YieldQueue> = StackQueue::new();
-      }
-
-      &QUEUE
-    }
-
     async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
 
       yield_now().await;
 
       assignment.map(|val| val)
+    }
+  }
+
+  impl LocalQueue for YieldQueue {
+    fn queue() -> &'static LocalKey<super::StackQueue<Self>> {
+      thread_local! {
+        static QUEUE: StackQueue<YieldQueue> = StackQueue::new();
+      }
+
+      &QUEUE
     }
   }
 

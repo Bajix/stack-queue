@@ -7,4 +7,4 @@ mod helpers;
 mod queue;
 pub mod task;
 
-pub use queue::{StackQueue, TaskQueue};
+pub use queue::{LocalQueue, StackQueue, TaskQueue};

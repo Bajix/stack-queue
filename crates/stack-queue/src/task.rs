@@ -19,7 +19,7 @@ use bit_bounds::{usize::Int, IsPowerOf2};
 use diesel::associations::BelongsTo;
 use pin_project::{pin_project, pinned_drop};
 
-use crate::queue::{QueueFull, TaskQueue};
+use crate::queue::{LocalQueue, QueueFull, TaskQueue};
 
 pub(crate) const SETTING_VALUE: usize = 1 << 0;
 pub(crate) const VALUE_SET: usize = 1 << 1;
@@ -207,7 +207,7 @@ enum State<T: TaskQueue> {
 
 /// An automatically batched task
 #[pin_project(project = AutoBatchProj, PinnedDrop)]
-pub struct AutoBatchedTask<T: TaskQueue, const N: usize = 2048>
+pub struct AutoBatchedTask<T: LocalQueue, const N: usize = 2048>
 where
   Int<N>: IsPowerOf2,
 {
@@ -216,7 +216,7 @@ where
 
 impl<T, const N: usize> AutoBatchedTask<T, N>
 where
-  T: TaskQueue,
+  T: LocalQueue,
   Int<N>: IsPowerOf2,
 {
   /// Create a new auto batched task
@@ -229,7 +229,7 @@ where
 
 impl<T, const N: usize> Future for AutoBatchedTask<T, N>
 where
-  T: TaskQueue,
+  T: LocalQueue,
   Int<N>: IsPowerOf2,
 {
   type Output = T::Value;
@@ -292,7 +292,7 @@ where
 #[pinned_drop]
 impl<T, const N: usize> PinnedDrop for AutoBatchedTask<T, N>
 where
-  T: TaskQueue,
+  T: LocalQueue,
   Int<N>: IsPowerOf2,
 {
   fn drop(self: Pin<&mut Self>) {

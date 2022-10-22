@@ -4,7 +4,7 @@ use async_t::async_trait;
 use futures::future::join_all;
 use stack_queue::{
   assignment::{CompletionReceipt, PendingAssignment},
-  StackQueue, TaskQueue,
+  LocalQueue, StackQueue, TaskQueue,
 };
 
 struct EchoQueue;
@@ -14,16 +14,18 @@ impl TaskQueue for EchoQueue {
   type Task = u64;
   type Value = u64;
 
+  async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
+    batch.into_assignment().map(|val| val)
+  }
+}
+
+impl LocalQueue for EchoQueue {
   fn queue() -> &'static LocalKey<StackQueue<Self>> {
     thread_local! {
       static QUEUE: StackQueue<EchoQueue> = StackQueue::new();
     }
 
     &QUEUE
-  }
-
-  async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
-    batch.into_assignment().map(|val| val)
   }
 }
 
