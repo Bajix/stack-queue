@@ -1,0 +1,18 @@
+[package]
+name = "derive-stack-queue"
+authors = ["Thomas Sieverding <Thomas@bajix.com>"]
+edition = "2021"
+version = "0.0.1-beta.5"
+description = "Derives for stack-queue"
+readme = "../../README.md"
+license = "MIT"
+repository = "https://github.com/Bajix/stack-queue/"
+
+[lib]
+doctest = false
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "1", features = [] }

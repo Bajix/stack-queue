@@ -217,15 +217,17 @@ where
 
 #[cfg(all(test))]
 mod test {
-  use std::{thread::LocalKey, time::Duration};
+  use std::time::Duration;
 
   use async_t::async_trait;
+  use derive_stack_queue::LocalQueue;
   use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
   use tokio::{task::yield_now, time::sleep};
 
-  use super::{LocalQueue, StackQueue, TaskQueue};
+  use super::{LocalQueue, TaskQueue};
   use crate::assignment::{CompletionReceipt, PendingAssignment};
 
+  #[derive(LocalQueue)]
   struct EchoQueue;
 
   #[async_trait]
@@ -236,16 +238,6 @@ mod test {
     async fn batch_process(batch: PendingAssignment<Self>) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
       assignment.map(|val| val)
-    }
-  }
-
-  impl LocalQueue for EchoQueue {
-    fn queue() -> &'static LocalKey<super::StackQueue<Self>> {
-      thread_local! {
-        static QUEUE: StackQueue<EchoQueue> = StackQueue::new();
-      }
-
-      &QUEUE
     }
   }
 
@@ -265,6 +257,7 @@ mod test {
     }
   }
 
+  #[derive(LocalQueue)]
   struct SlowQueue;
 
   #[async_trait]
@@ -281,16 +274,6 @@ mod test {
     }
   }
 
-  impl LocalQueue for SlowQueue {
-    fn queue() -> &'static LocalKey<super::StackQueue<Self>> {
-      thread_local! {
-        static QUEUE: StackQueue<SlowQueue> = StackQueue::new();
-      }
-
-      &QUEUE
-    }
-  }
-
   #[tokio::test(flavor = "multi_thread")]
 
   async fn it_has_drop_safety() {
@@ -303,6 +286,7 @@ mod test {
     handle.abort();
   }
 
+  #[derive(LocalQueue)]
   struct YieldQueue;
 
   #[async_trait]
@@ -316,16 +300,6 @@ mod test {
       yield_now().await;
 
       assignment.map(|val| val)
-    }
-  }
-
-  impl LocalQueue for YieldQueue {
-    fn queue() -> &'static LocalKey<super::StackQueue<Self>> {
-      thread_local! {
-        static QUEUE: StackQueue<YieldQueue> = StackQueue::new();
-      }
-
-      &QUEUE
     }
   }
 
