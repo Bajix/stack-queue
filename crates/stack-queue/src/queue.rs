@@ -273,12 +273,12 @@ mod test {
       batch: PendingAssignment<'async_trait, Self, N>,
     ) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
-      let len = assignment.tasks().len();
+
       assignment
-        .resolve_blocking(move || {
+        .resolve_blocking(|tasks| {
           thread::sleep(Duration::from_millis(50));
 
-          0..len
+          tasks
         })
         .await
     }

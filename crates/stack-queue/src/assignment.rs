@@ -134,6 +134,7 @@ where
       .iter()
       .zip(iter)
       .for_each(|(task_ref, value)| unsafe {
+        drop(task_ref.take_task_unchecked());
         task_ref.resolve_unchecked(value);
       });
 
@@ -172,14 +173,16 @@ where
   /// indexes align with tasks
   pub async fn resolve_blocking<F, I>(self, f: F) -> CompletionReceipt<T>
   where
-    F: FnOnce() -> I + Send + 'static,
+    F: FnOnce(Vec<T::Task>) -> I + Send + 'static,
     I: IntoIterator<Item = T::Value> + Send + 'static,
   {
-    if let Ok(iter) = tokio::task::spawn_blocking(f).await {
-      self.resolve_with_iter(iter)
-    } else {
-      CompletionReceipt::new()
+    let (tasks, guard) = AssignmentGuard::from_assignment(self);
+
+    if let Ok(iter) = tokio::task::spawn_blocking(move || f(tasks)).await {
+      guard.resolve_with_iter(iter);
     }
+
+    CompletionReceipt::new()
   }
 }
 
@@ -202,6 +205,88 @@ where
 unsafe impl<'a, T, const N: usize> Send for TaskAssignment<'a, T, N> where T: TaskQueue {}
 unsafe impl<'a, T, const N: usize> Sync for TaskAssignment<'a, T, N> where T: TaskQueue {}
 
+struct AssignmentGuard<'a, T: TaskQueue, const N: usize> {
+  task_range: Range<usize>,
+  queue_ptr: *const Inner<T, N>,
+  _phantom: PhantomData<&'a ()>,
+}
+
+impl<'a, T, const N: usize> AssignmentGuard<'a, T, N>
+where
+  T: TaskQueue,
+{
+  fn from_assignment(assignment: TaskAssignment<'a, T, N>) -> (Vec<T::Task>, Self) {
+    let tasks: Vec<T::Task> = assignment
+      .tasks()
+      .iter()
+      .map(|task_ref| unsafe { task_ref.take_task_unchecked() })
+      .collect();
+
+    let task_range = assignment.task_range.clone();
+    let queue_ptr = assignment.queue_ptr;
+
+    mem::forget(assignment);
+
+    let guard = AssignmentGuard::new(task_range, queue_ptr);
+
+    (tasks, guard)
+  }
+
+  fn new(task_range: Range<usize>, queue_ptr: *const Inner<T, N>) -> Self {
+    AssignmentGuard {
+      task_range,
+      queue_ptr,
+      _phantom: PhantomData,
+    }
+  }
+
+  /// A slice of the assigned task range
+  fn tasks(&self) -> &[TaskRef<T>] {
+    unsafe { self.queue().buffer.get_unchecked(self.task_range.clone()) }
+  }
+
+  #[inline(always)]
+  fn queue(&self) -> &Inner<T, N> {
+    // This can be safely dereferenced because Inner is immovable by design and will block it's
+    // thread termination as necessary until no references exist
+    unsafe { &*self.queue_ptr }
+  }
+
+  /// Resolve task assignment with an iterator where indexes align with tasks
+  fn resolve_with_iter<I>(self, iter: I)
+  where
+    I: IntoIterator<Item = T::Value>,
+  {
+    self
+      .tasks()
+      .iter()
+      .zip(iter)
+      .for_each(|(task_ref, value)| unsafe {
+        task_ref.resolve_unchecked(value);
+      });
+  }
+
+  fn deoccupy_buffer(&self) {
+    self
+      .queue()
+      .occupancy
+      .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Relaxed);
+  }
+}
+
+impl<'a, T, const N: usize> Drop for AssignmentGuard<'a, T, N>
+where
+  T: TaskQueue,
+{
+  fn drop(&mut self) {
+    self.deoccupy_buffer();
+  }
+}
+
+// This is safe because queue_ptr is guaranteed to be immovable and non-null while
+// references exist
+unsafe impl<'a, T, const N: usize> Send for AssignmentGuard<'a, T, N> where T: TaskQueue {}
+unsafe impl<'a, T, const N: usize> Sync for AssignmentGuard<'a, T, N> where T: TaskQueue {}
 /// A type-state proof of completion for a task assignment
 pub struct CompletionReceipt<T: TaskQueue>(PhantomData<T>);
 
