@@ -27,7 +27,8 @@ bench = false
 
 [features]
 default = []
+boxed = ["async_t/boxed"]
 diesel-associations = ["diesel"]
 
 [package.metadata.docs.rs]
-features = ["diesel-associations"]
+features = ["boxed", "diesel-associations"]
