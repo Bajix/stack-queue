@@ -30,6 +30,7 @@ pub fn derive_local_queue(input: proc_macro::TokenStream) -> proc_macro::TokenSt
   let expanded = quote! {
     stack_queue::sa::const_assert!(#buffer_size >= stack_queue::MIN_BUFFER_LEN);
     stack_queue::sa::const_assert!(#buffer_size <= stack_queue::MAX_BUFFER_LEN);
+    stack_queue::sa::const_assert_eq!(#buffer_size, #buffer_size.next_power_of_two());
 
     impl stack_queue::LocalQueue<#buffer_size> for #ident {
       fn queue() -> &'static std::thread::LocalKey<stack_queue::StackQueue<Self, #buffer_size>> {

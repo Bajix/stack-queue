@@ -14,7 +14,6 @@ use std::{
   thread::yield_now,
 };
 
-use bit_bounds::{usize::Int, IsPowerOf2};
 #[cfg(feature = "diesel-associations")]
 use diesel::associations::BelongsTo;
 use pin_project::{pin_project, pinned_drop};
@@ -210,17 +209,13 @@ enum State<T: TaskQueue> {
 
 /// An automatically batched task
 #[pin_project(project = AutoBatchProj, PinnedDrop)]
-pub struct AutoBatchedTask<T: LocalQueue<N>, const N: usize = 2048>
-where
-  Int<N>: IsPowerOf2,
-{
+pub struct AutoBatchedTask<T: LocalQueue<N>, const N: usize = 2048> {
   state: State<T>,
 }
 
 impl<T, const N: usize> AutoBatchedTask<T, N>
 where
   T: LocalQueue<N>,
-  Int<N>: IsPowerOf2,
 {
   /// Create a new auto batched task
   pub fn new(task: T::Task) -> Self {
@@ -233,7 +228,6 @@ where
 impl<T, const N: usize> Future for AutoBatchedTask<T, N>
 where
   T: LocalQueue<N>,
-  Int<N>: IsPowerOf2,
 {
   type Output = T::Value;
 
@@ -296,7 +290,6 @@ where
 impl<T, const N: usize> PinnedDrop for AutoBatchedTask<T, N>
 where
   T: LocalQueue<N>,
-  Int<N>: IsPowerOf2,
 {
   fn drop(self: Pin<&mut Self>) {
     if let State::Batched(rx) = &self.state {

@@ -9,7 +9,6 @@ use std::{
 };
 
 use async_t::async_trait;
-use bit_bounds::{usize::Int, IsPowerOf2};
 use cache_padded::CachePadded;
 use tokio::runtime::Handle;
 
@@ -34,10 +33,7 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
   ) -> CompletionReceipt<Self>;
 }
 
-pub trait LocalQueue<const N: usize>: TaskQueue
-where
-  Int<N>: IsPowerOf2,
-{
+pub trait LocalQueue<const N: usize>: TaskQueue {
   fn queue() -> &'static LocalKey<StackQueue<Self, N>>;
 
   fn auto_batch(task: Self::Task) -> AutoBatchedTask<Self, N> {
@@ -53,7 +49,6 @@ pub(crate) struct Inner<T: TaskQueue, const N: usize = 2048> {
 impl<T: TaskQueue, const N: usize> Inner<T, N>
 where
   T: TaskQueue,
-  Int<N>: IsPowerOf2,
 {
   fn new() -> Self {
     let buffer = array::from_fn(|_| TaskRef::new_uninit());
@@ -70,10 +65,7 @@ where
 pub(crate) struct QueueFull;
 
 /// Task queue designed for facilitating heapless auto-batching of tasks
-pub struct StackQueue<T: TaskQueue, const N: usize = 2048>
-where
-  Int<N>: IsPowerOf2,
-{
+pub struct StackQueue<T: TaskQueue, const N: usize = 2048> {
   slot: CachePadded<UnsafeCell<usize>>,
   occupancy: CachePadded<UnsafeCell<usize>>,
   inner: Inner<T, N>,
@@ -82,7 +74,6 @@ where
 impl<T: TaskQueue, const N: usize> Default for StackQueue<T, N>
 where
   T: TaskQueue,
-  Int<N>: IsPowerOf2,
 {
   fn default() -> Self {
     StackQueue {
@@ -96,7 +87,6 @@ where
 impl<T: TaskQueue, const N: usize> StackQueue<T, N>
 where
   T: TaskQueue,
-  Int<N>: IsPowerOf2,
 {
   #[inline(always)]
   fn current_write_index(&self) -> usize {
@@ -204,7 +194,6 @@ where
 impl<T: TaskQueue, const N: usize> Drop for StackQueue<T, N>
 where
   T: TaskQueue,
-  Int<N>: IsPowerOf2,
 {
   fn drop(&mut self) {
     while self.inner.occupancy.load(Ordering::Relaxed).ne(&0) {

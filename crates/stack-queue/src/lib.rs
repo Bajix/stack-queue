@@ -1,6 +1,5 @@
-#![allow(incomplete_features)]
 #![feature(type_alias_impl_trait)]
-#![feature(generic_const_exprs)]
+
 extern crate self as stack_queue;
 
 #[doc(hidden)]

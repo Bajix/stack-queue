@@ -1,6 +1,4 @@
 #![feature(type_alias_impl_trait)]
-#![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
 
 pub mod crossbeam;
 pub mod flume;
