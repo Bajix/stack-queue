@@ -240,8 +240,7 @@ mod test {
     async fn batch_process<const N: usize>(
       batch: PendingAssignment<'async_trait, Self, N>,
     ) -> CompletionReceipt<Self> {
-      let assignment = batch.into_assignment();
-      assignment.map(|val| val)
+      batch.into_assignment().map(|val| val)
     }
   }
 

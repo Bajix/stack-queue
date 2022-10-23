@@ -1,23 +1,73 @@
-use std::time::Duration;
+#![feature(type_alias_impl_trait)]
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)]
 
+use std::{
+  iter,
+  time::{Duration, Instant},
+};
+
+use async_t::async_trait;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
+use stack_queue::{
+  assignment::{CompletionReceipt, PendingAssignment},
+  LocalQueue, TaskQueue,
+};
 use tokio::runtime::Builder;
 
 #[global_allocator]
 static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
+#[derive(LocalQueue)]
+pub struct AssignmentTimeQueue;
+
+#[async_trait]
+impl TaskQueue for AssignmentTimeQueue {
+  type Task = ();
+  type Value = Duration;
+
+  async fn batch_process<const N: usize>(
+    batch: PendingAssignment<'async_trait, Self, N>,
+  ) -> CompletionReceipt<Self> {
+    let start = Instant::now();
+    let assignment = batch.into_assignment();
+    let elapsed = start.elapsed();
+
+    assignment.resolve_with_iter(iter::repeat(elapsed))
+  }
+}
+
 fn criterion_benchmark(c: &mut Criterion) {
   let rt = Builder::new_current_thread().build().unwrap();
 
-  let mut batching_tests = c.benchmark_group("Batching");
-  batching_tests.sampling_mode(SamplingMode::Linear);
-  batching_tests.warm_up_time(Duration::from_secs(1));
-  batching_tests.sample_size(10);
+  let mut assignment_benches = c.benchmark_group("Task Collection");
+  assignment_benches.sampling_mode(SamplingMode::Linear);
+  assignment_benches.warm_up_time(Duration::from_secs(1));
+  assignment_benches.sample_size(10);
+
+  assignment_benches.bench_function("into_assignment", |bencher| {
+    bencher.to_async(&rt).iter_custom(|iters| async move {
+      let mut total = Duration::from_secs(0);
+
+      for _i in 0..iters {
+        total = total.saturating_add(AssignmentTimeQueue::auto_batch(()).await);
+      }
+
+      total
+    });
+  });
+
+  assignment_benches.finish();
+
+  let mut batching_benches = c.benchmark_group("Batching");
+  batching_benches.sampling_mode(SamplingMode::Linear);
+  batching_benches.warm_up_time(Duration::from_secs(1));
+  batching_benches.sample_size(10);
 
   for n in 0..=6 {
     let batch_size: u64 = 1 << n;
 
-    batching_tests.bench_with_input(
+    batching_benches.bench_with_input(
       BenchmarkId::new("crossbeam", batch_size),
       &batch_size,
       |b, batch_size| {
@@ -26,7 +76,7 @@ fn criterion_benchmark(c: &mut Criterion) {
       },
     );
 
-    batching_tests.bench_with_input(
+    batching_benches.bench_with_input(
       BenchmarkId::new("flume", batch_size),
       &batch_size,
       |b, batch_size| {
@@ -35,7 +85,7 @@ fn criterion_benchmark(c: &mut Criterion) {
       },
     );
 
-    batching_tests.bench_with_input(
+    batching_benches.bench_with_input(
       BenchmarkId::new("stack-queue", batch_size),
       &batch_size,
       |b, batch_size| {
@@ -44,7 +94,7 @@ fn criterion_benchmark(c: &mut Criterion) {
       },
     );
 
-    batching_tests.bench_with_input(
+    batching_benches.bench_with_input(
       BenchmarkId::new("swap-queue", batch_size),
       &batch_size,
       |b, batch_size| {
@@ -53,7 +103,7 @@ fn criterion_benchmark(c: &mut Criterion) {
       },
     );
 
-    batching_tests.bench_with_input(
+    batching_benches.bench_with_input(
       BenchmarkId::new("tokio::mpsc", batch_size),
       &batch_size,
       |b, batch_size| {
@@ -63,7 +113,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     );
   }
 
-  batching_tests.finish();
+  batching_benches.finish();
 }
 
 criterion_group!(benches, criterion_benchmark);
