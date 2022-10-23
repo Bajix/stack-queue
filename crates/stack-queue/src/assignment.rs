@@ -163,6 +163,20 @@ where
 
     CompletionReceipt::new()
   }
+
+  /// Resolve task assignment within a thread where blocking is acceptable with an iterator where
+  /// indexes align with tasks
+  pub async fn resolve_blocking<F, I>(self, f: F) -> CompletionReceipt<T>
+  where
+    F: FnOnce() -> I + Send + 'static,
+    I: IntoIterator<Item = T::Value> + Send + 'static,
+  {
+    if let Ok(iter) = tokio::task::spawn_blocking(f).await {
+      self.resolve_with_iter(iter)
+    } else {
+      CompletionReceipt::new()
+    }
+  }
 }
 
 impl<T, const N: usize> Drop for TaskAssignment<T, N>

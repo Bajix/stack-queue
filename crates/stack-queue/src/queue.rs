@@ -214,7 +214,7 @@ where
 
 #[cfg(all(test))]
 mod test {
-  use std::time::Duration;
+  use std::{thread, time::Duration};
 
   use async_t::async_trait;
   use derive_stack_queue::LocalQueue;
@@ -269,10 +269,14 @@ mod test {
       batch: PendingAssignment<Self, N>,
     ) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
+      let len = assignment.tasks().len();
+      assignment
+        .resolve_blocking(move || {
+          thread::sleep(Duration::from_millis(50));
 
-      sleep(Duration::from_millis(50)).await;
-
-      assignment.map(|val| val)
+          0..len
+        })
+        .await
     }
   }
 
