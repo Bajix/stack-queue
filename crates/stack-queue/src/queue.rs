@@ -28,8 +28,9 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
   type Value: Send + Sync + Sized + 'static;
 
+  #[allow(clippy::needless_lifetimes)]
   async fn batch_process<const N: usize>(
-    assignment: PendingAssignment<Self, N>,
+    assignment: PendingAssignment<'async_trait, Self, N>,
   ) -> CompletionReceipt<Self>;
 }
 
@@ -158,10 +159,10 @@ where
     std::mem::replace(unsafe { &mut *self.slot.get() }, slot)
   }
 
-  pub(crate) fn enqueue<F>(
+  pub(crate) fn enqueue<'a, F>(
     &self,
     write_with: F,
-  ) -> Result<Option<PendingAssignment<T, N>>, QueueFull>
+  ) -> Result<Option<PendingAssignment<'a, T, N>>, QueueFull>
   where
     F: FnOnce(*const AtomicUsize) -> (T::Task, *const Receiver<T>),
   {
@@ -207,7 +208,10 @@ where
 {
   fn drop(&mut self) {
     while self.inner.occupancy.load(Ordering::Relaxed).ne(&0) {
-      Handle::current().block_on(tokio::task::yield_now());
+      match Handle::try_current() {
+        Ok(handle) => handle.block_on(tokio::task::yield_now()),
+        Err(_) => break,
+      }
     }
   }
 }
@@ -234,7 +238,7 @@ mod test {
     type Value = usize;
 
     async fn batch_process<const N: usize>(
-      batch: PendingAssignment<Self, N>,
+      batch: PendingAssignment<'async_trait, Self, N>,
     ) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
       assignment.map(|val| val)
@@ -266,7 +270,7 @@ mod test {
     type Value = usize;
 
     async fn batch_process<const N: usize>(
-      batch: PendingAssignment<Self, N>,
+      batch: PendingAssignment<'async_trait, Self, N>,
     ) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
       let len = assignment.tasks().len();
@@ -301,7 +305,7 @@ mod test {
     type Value = usize;
 
     async fn batch_process<const N: usize>(
-      batch: PendingAssignment<Self, N>,
+      batch: PendingAssignment<'async_trait, Self, N>,
     ) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
 

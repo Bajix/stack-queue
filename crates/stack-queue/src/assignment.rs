@@ -12,12 +12,13 @@ use crate::{
 };
 
 /// The responsibilty to process a yet to be assigned set of tasks on the queue.
-pub struct PendingAssignment<T: TaskQueue, const N: usize> {
+pub struct PendingAssignment<'a, T: TaskQueue, const N: usize> {
   base_slot: usize,
   queue_ptr: *const Inner<T, N>,
+  _phantom: PhantomData<&'a ()>,
 }
 
-impl<T, const N: usize> PendingAssignment<T, N>
+impl<'a, T, const N: usize> PendingAssignment<'a, T, N>
 where
   T: TaskQueue,
 {
@@ -25,6 +26,7 @@ where
     PendingAssignment {
       base_slot,
       queue_ptr,
+      _phantom: PhantomData,
     }
   }
 
@@ -64,7 +66,7 @@ where
   /// bounded and further tasks enqueued will be of a new batch. Assignment of a task range can be
   /// deferred until resources such as database connections are ready as a way to process tasks in
   /// larger batches. This operation is constant time and wait-free
-  pub fn into_assignment(self) -> TaskAssignment<T, N> {
+  pub fn into_assignment(self) -> TaskAssignment<'a, T, N> {
     let task_range = self.set_assignment_bounds();
     let queue_ptr = self.queue_ptr;
 
@@ -76,10 +78,10 @@ where
 
 // This is safe because queue_ptr is guaranteed to be immovable and non-null while
 // references exist
-unsafe impl<T, const N: usize> Send for PendingAssignment<T, N> where T: TaskQueue {}
-unsafe impl<T, const N: usize> Sync for PendingAssignment<T, N> where T: TaskQueue {}
+unsafe impl<'a, T, const N: usize> Send for PendingAssignment<'a, T, N> where T: TaskQueue {}
+unsafe impl<'a, T, const N: usize> Sync for PendingAssignment<'a, T, N> where T: TaskQueue {}
 
-impl<T, const N: usize> Drop for PendingAssignment<T, N>
+impl<'a, T, const N: usize> Drop for PendingAssignment<'a, T, N>
 where
   T: TaskQueue,
 {
@@ -92,12 +94,13 @@ where
 }
 
 /// An assignment of a task range to be processed
-pub struct TaskAssignment<T: TaskQueue, const N: usize> {
+pub struct TaskAssignment<'a, T: TaskQueue, const N: usize> {
   task_range: Range<usize>,
   queue_ptr: *const Inner<T, N>,
+  _phantom: PhantomData<&'a ()>,
 }
 
-impl<T, const N: usize> TaskAssignment<T, N>
+impl<'a, T, const N: usize> TaskAssignment<'a, T, N>
 where
   T: TaskQueue,
 {
@@ -105,6 +108,7 @@ where
     TaskAssignment {
       task_range,
       queue_ptr,
+      _phantom: PhantomData,
     }
   }
 
@@ -179,7 +183,7 @@ where
   }
 }
 
-impl<T, const N: usize> Drop for TaskAssignment<T, N>
+impl<'a, T, const N: usize> Drop for TaskAssignment<'a, T, N>
 where
   T: TaskQueue,
 {
@@ -195,8 +199,8 @@ where
 
 // This is safe because queue_ptr is guaranteed to be immovable and non-null while
 // references exist
-unsafe impl<T, const N: usize> Send for TaskAssignment<T, N> where T: TaskQueue {}
-unsafe impl<T, const N: usize> Sync for TaskAssignment<T, N> where T: TaskQueue {}
+unsafe impl<'a, T, const N: usize> Send for TaskAssignment<'a, T, N> where T: TaskQueue {}
+unsafe impl<'a, T, const N: usize> Sync for TaskAssignment<'a, T, N> where T: TaskQueue {}
 
 /// A type-state proof of completion for a task assignment
 pub struct CompletionReceipt<T: TaskQueue>(PhantomData<T>);
