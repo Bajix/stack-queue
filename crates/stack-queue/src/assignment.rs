@@ -1,9 +1,13 @@
+#[cfg(not(loom))]
+use std::sync::atomic::Ordering;
 use std::{
   marker::PhantomData,
   mem,
   ops::{BitAnd, Range},
-  sync::atomic::Ordering,
 };
+
+#[cfg(loom)]
+use loom::sync::atomic::Ordering;
 
 use crate::{
   helpers::{active_phase_bit, one_shifted},

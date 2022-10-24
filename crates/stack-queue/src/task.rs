@@ -3,19 +3,28 @@ use std::{
   fmt,
   fmt::Debug,
   future::Future,
-  hint::unreachable_unchecked,
   marker::PhantomPinned,
   mem::MaybeUninit,
   ops::Deref,
   pin::Pin,
   ptr::addr_of,
-  sync::atomic::{AtomicUsize, Ordering},
   task::{Context, Poll, Waker},
+};
+#[cfg(not(loom))]
+use std::{
+  hint::unreachable_unchecked,
+  sync::atomic::{AtomicUsize, Ordering},
   thread::yield_now,
 };
 
 #[cfg(feature = "diesel-associations")]
 use diesel::associations::BelongsTo;
+#[cfg(loom)]
+use loom::{
+  hint::unreachable_unchecked,
+  sync::atomic::{AtomicUsize, Ordering},
+  thread::yield_now,
+};
 use pin_project::{pin_project, pinned_drop};
 
 use crate::queue::{LocalQueue, QueueFull, TaskQueue};
@@ -83,10 +92,16 @@ where
     self.state() as *const AtomicUsize
   }
 
-  #[allow(clippy::mut_from_ref)]
+  #[cfg(not(loom))]
   #[inline(always)]
-  unsafe fn state_mut(&self) -> &mut usize {
-    (*self.state.get()).get_mut()
+  unsafe fn reset_state(&self) {
+    *(*self.state.get()).get_mut() = 0;
+  }
+
+  #[cfg(loom)]
+  #[inline(always)]
+  unsafe fn reset_state(&self) {
+    (*self.state.get()).with_mut(|state| *state = 0);
   }
 
   #[inline(always)]
@@ -112,7 +127,7 @@ where
   }
 
   pub(crate) unsafe fn set_task(&self, task: T::Task, rx: *const Receiver<T>) {
-    *self.state_mut() = 0;
+    self.reset_state();
     self.rx_mut().write(rx);
     self.task_mut().write(task);
   }

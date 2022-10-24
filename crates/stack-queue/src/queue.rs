@@ -1,15 +1,12 @@
-use std::{
-  array,
-  cell::UnsafeCell,
-  fmt::Debug,
-  ops::BitAnd,
-  ptr::addr_of,
-  sync::atomic::{AtomicUsize, Ordering},
-  thread::LocalKey,
-};
+#[cfg(not(loom))]
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{array, cell::UnsafeCell, fmt::Debug, ops::BitAnd, ptr::addr_of, thread::LocalKey};
 
 use async_t::async_trait;
 use cache_padded::CachePadded;
+#[cfg(loom)]
+use loom::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(not(loom))]
 use tokio::runtime::Handle;
 
 use crate::{
@@ -200,6 +197,7 @@ where
 // approach is not ideal, this is at worst an edge-case that can only happen after a shutdown signal
 // has occurred, and so this is given preference over other techniques that would come at a
 // continuous performance cost. This approach allows us to avoid the necessity for condvar / mutexes
+#[cfg(not(loom))]
 impl<T: TaskQueue, const N: usize> Drop for StackQueue<T, N>
 where
   T: TaskQueue,
@@ -213,21 +211,24 @@ where
     }
   }
 }
-
 #[cfg(all(test))]
 mod test {
   use std::{thread, time::Duration};
 
   use async_t::async_trait;
   use derive_stack_queue::LocalQueue;
-  use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
-  use tokio::{task::yield_now, time::sleep};
-
+  use futures::future::join_all;
+  #[cfg(not(loom))]
+  use futures::{stream::FuturesUnordered, StreamExt};
+  #[cfg(loom)]
+  use loom::{future::block_on, model};
+  use tokio::task::yield_now;
+  
   use super::{LocalQueue, TaskQueue};
   use crate::assignment::{CompletionReceipt, PendingAssignment};
 
   #[derive(LocalQueue)]
-  #[local_queue(buffer_size = 1024)]
+  #[local_queue(buffer_size = 256)]
   struct EchoQueue;
 
   #[async_trait]
@@ -242,6 +243,7 @@ mod test {
     }
   }
 
+  #[cfg(not(loom))]
   #[tokio::test(flavor = "multi_thread")]
 
   async fn it_process_tasks() {
@@ -250,12 +252,37 @@ mod test {
     assert_eq!(batch, (0..100).collect::<Vec<usize>>());
   }
 
+  #[cfg(loom)]
+  #[test]
+  fn it_process_tasks() {
+    model(|| {
+      block_on(async {
+        let batch: Vec<usize> = join_all((0..100).map(|i| EchoQueue::auto_batch(i))).await;
+
+        assert_eq!(batch, (0..100).collect::<Vec<usize>>());
+      });
+    });
+  }
+
+  #[cfg(not(loom))]
   #[tokio::test(flavor = "multi_thread")]
 
   async fn it_cycles() {
-    for i in 0..4096 {
+    for i in 0..512 {
       EchoQueue::auto_batch(i).await;
     }
+  }
+
+  #[cfg(loom)]
+  #[test]
+  fn it_cycles() {
+    model(|| {
+      block_on(async {
+        for i in 0..512 {
+          EchoQueue::auto_batch(i).await;
+        }
+      });
+    });
   }
 
   #[derive(LocalQueue)]
@@ -281,6 +308,7 @@ mod test {
     }
   }
 
+  #[cfg(not(loom))]
   #[tokio::test(flavor = "multi_thread")]
 
   async fn it_has_drop_safety() {
@@ -288,7 +316,7 @@ mod test {
       SlowQueue::auto_batch(0).await;
     });
 
-    sleep(Duration::from_millis(1)).await;
+    yield_now().await;
 
     handle.abort();
   }
@@ -312,6 +340,7 @@ mod test {
     }
   }
 
+  #[cfg(not(loom))]
   #[tokio::test(flavor = "multi_thread")]
 
   async fn it_negotiates_receiver_drop() {
