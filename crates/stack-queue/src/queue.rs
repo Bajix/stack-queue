@@ -16,6 +16,7 @@ use crate::{
   assignment::{CompletionReceipt, PendingAssignment},
   helpers::*,
   task::{AutoBatchedTask, Receiver, TaskRef},
+  MAX_BUFFER_LEN, MIN_BUFFER_LEN,
 };
 
 #[cfg(target_pointer_width = "64")]
@@ -76,6 +77,14 @@ where
   T: TaskQueue,
 {
   fn default() -> Self {
+    assert_eq!(
+      N,
+      N.next_power_of_two(),
+      "StackQueue buffer size must be power of 2"
+    );
+    assert!(N >= MIN_BUFFER_LEN);
+    assert!(N <= MAX_BUFFER_LEN);
+
     StackQueue {
       slot: CachePadded::new(UnsafeCell::new(N << INDEX_SHIFT)),
       occupancy: CachePadded::new(UnsafeCell::new(0)),
