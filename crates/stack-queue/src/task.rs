@@ -130,7 +130,7 @@ where
     if (state & RECEIVER_DROPPED).eq(&0) {
       let rx = self.rx();
       *rx.value.get() = MaybeUninit::new(value);
-      rx.waker.wake_by_ref();
+      rx.take_waker_unchecked().wake();
       self
         .state()
         .fetch_xor(SETTING_VALUE | VALUE_SET, Ordering::Release);
@@ -173,7 +173,7 @@ where
 pub(crate) struct Receiver<T: TaskQueue> {
   state: *const AtomicUsize,
   value: UnsafeCell<MaybeUninit<T::Value>>,
-  waker: Waker,
+  waker: UnsafeCell<MaybeUninit<Waker>>,
   pin: PhantomPinned,
 }
 
@@ -185,7 +185,7 @@ where
     Receiver {
       state,
       value: UnsafeCell::new(MaybeUninit::uninit()),
-      waker,
+      waker: UnsafeCell::new(MaybeUninit::new(waker)),
       pin: PhantomPinned,
     }
   }
@@ -193,6 +193,10 @@ where
   #[inline(always)]
   fn state(&self) -> &AtomicUsize {
     unsafe { &*self.state }
+  }
+
+  unsafe fn take_waker_unchecked(&self) -> Waker {
+    std::mem::replace(&mut *self.waker.get(), MaybeUninit::uninit()).assume_init()
   }
 }
 
@@ -294,6 +298,12 @@ where
   fn drop(self: Pin<&mut Self>) {
     if let State::Batched(rx) = &self.state {
       let mut state = rx.state().fetch_or(RECEIVER_DROPPED, Ordering::AcqRel);
+
+      if (state & SETTING_VALUE).eq(&0) {
+        unsafe {
+          drop(rx.take_waker_unchecked());
+        }
+      }
 
       // This cannot be safely deallocated until after the value is set
       while state & SETTING_VALUE == SETTING_VALUE {
