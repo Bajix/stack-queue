@@ -213,20 +213,17 @@ where
 }
 #[cfg(all(test))]
 mod test {
-  use std::{thread, time::Duration};
+  use std::{sync::Arc, thread, time::Duration};
 
   use async_t::async_trait;
   use derive_stack_queue::LocalQueue;
-  use futures::future::join_all;
-  #[cfg(not(loom))]
-  use futures::{stream::FuturesUnordered, StreamExt};
+  use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
   #[cfg(loom)]
   use loom::{future::block_on, model};
-  use tokio::task::yield_now;
-  
+  use tokio::{sync::Barrier, task::yield_now};
+
   use super::{LocalQueue, TaskQueue};
   use crate::assignment::{CompletionReceipt, PendingAssignment};
-
   #[derive(LocalQueue)]
   #[local_queue(buffer_size = 256)]
   struct EchoQueue;
@@ -344,26 +341,50 @@ mod test {
   #[tokio::test(flavor = "multi_thread")]
 
   async fn it_negotiates_receiver_drop() {
-    let tasks: FuturesUnordered<_> = (0..8)
-      .map(|_| {
-        tokio::task::spawn(async {
-          let tasks: FuturesUnordered<_> = (0..16384)
-            .map(|i| async move {
-              let handle = tokio::task::spawn(async move {
-                YieldQueue::auto_batch(i).await;
-              });
+    let tasks: FuturesUnordered<_> = (0..256)
+      .map(|i| async move {
+        let barrier = Arc::new(Barrier::new(2));
 
-              yield_now().await;
+        let task_barrier = barrier.clone();
 
-              handle.abort()
-            })
-            .collect();
+        let handle = tokio::task::spawn(async move {
+          task_barrier.wait().await;
+          YieldQueue::auto_batch(i).await;
+        });
 
-          let _: Vec<_> = tasks.collect().await;
-        })
+        barrier.wait().await;
+        yield_now().await;
+
+        handle.abort()
       })
-      .collect::<FuturesUnordered<_>>();
+      .collect();
 
     tasks.collect::<Vec<_>>().await;
+  }
+
+  #[cfg(loom)]
+  #[test]
+  fn it_negotiates_receiver_drop() {
+    model(|| {
+      let tasks: FuturesUnordered<_> = (0..64)
+        .map(|i| async move {
+          let barrier = Arc::new(Barrier::new(2));
+
+          let task_barrier = barrier.clone();
+
+          let handle = tokio::task::spawn(async move {
+            task_barrier.wait().await;
+            YieldQueue::auto_batch(i).await;
+          });
+
+          barrier.wait().await;
+          yield_now().await;
+
+          handle.abort()
+        })
+        .collect();
+
+      block_on(tasks.collect::<Vec<_>>());
+    });
   }
 }
