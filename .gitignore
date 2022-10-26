@@ -16,5 +16,8 @@ Cargo.lock
 !.vscode/launch.json
 !.vscode/extensions.json
 
+### CLion ###
+.idea
+
 # Used for Taskfile.yml. See https://taskfile.dev/
 .task
