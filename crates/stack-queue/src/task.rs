@@ -1,26 +1,27 @@
+#[cfg(not(loom))]
 use std::{
   cell::UnsafeCell,
   fmt,
   fmt::Debug,
+  hint::unreachable_unchecked,
+  ops::Deref,
+  sync::atomic::{AtomicUsize, Ordering},
+  thread::yield_now,
+};
+use std::{
   future::Future,
   marker::PhantomPinned,
   mem::MaybeUninit,
-  ops::Deref,
   pin::Pin,
   ptr::addr_of,
   task::{Context, Poll, Waker},
-};
-#[cfg(not(loom))]
-use std::{
-  hint::unreachable_unchecked,
-  sync::atomic::{AtomicUsize, Ordering},
-  thread::yield_now,
 };
 
 #[cfg(feature = "diesel-associations")]
 use diesel::associations::BelongsTo;
 #[cfg(loom)]
 use loom::{
+  cell::UnsafeCell,
   hint::unreachable_unchecked,
   sync::atomic::{AtomicUsize, Ordering},
   thread::yield_now,
@@ -40,6 +41,7 @@ pub struct TaskRef<T: TaskQueue> {
   task: UnsafeCell<MaybeUninit<T::Task>>,
 }
 
+#[cfg(not(loom))]
 impl<T> Deref for TaskRef<T>
 where
   T: TaskQueue,
@@ -50,6 +52,7 @@ where
   }
 }
 
+#[cfg(not(loom))]
 impl<T> PartialEq for TaskRef<T>
 where
   T: TaskQueue,
@@ -60,6 +63,7 @@ where
   }
 }
 
+#[cfg(not(loom))]
 impl<T> PartialOrd for TaskRef<T>
 where
   T: TaskQueue,
@@ -81,78 +85,143 @@ where
       task: UnsafeCell::new(MaybeUninit::uninit()),
     }
   }
-
+  #[cfg(not(loom))]
   #[inline(always)]
-  pub(crate) fn state(&self) -> &AtomicUsize {
-    unsafe { &*self.state.get() }
+  pub(crate) fn with_state<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*const AtomicUsize) -> R,
+  {
+    f(self.state.get())
+  }
+
+  #[cfg(loom)]
+  #[inline(always)]
+  pub(crate) fn with_state<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*const AtomicUsize) -> R,
+  {
+    self.state.get().with(f)
   }
 
   #[inline(always)]
   pub(crate) fn state_ptr(&self) -> *const AtomicUsize {
-    self.state() as *const AtomicUsize
+    self.with_state(std::convert::identity)
+  }
+
+  #[cfg(not(loom))]
+  #[inline(always)]
+  unsafe fn with_state_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*mut AtomicUsize) -> R,
+  {
+    f(self.state.get())
+  }
+
+  #[cfg(loom)]
+  #[inline(always)]
+  unsafe fn with_state_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*mut AtomicUsize) -> R,
+  {
+    self.state.get_mut().with(f)
   }
 
   #[cfg(not(loom))]
   #[inline(always)]
   unsafe fn reset_state(&self) {
-    *(*self.state.get()).get_mut() = 0;
+    self.with_state_mut(|val| *(*val).get_mut() = 0);
   }
 
   #[cfg(loom)]
   #[inline(always)]
   unsafe fn reset_state(&self) {
-    (*self.state.get()).with_mut(|state| *state = 0);
+    self.with_state_mut(|val| (*val).with_mut(|val| *val = 0));
   }
 
+  #[cfg(not(loom))]
   #[inline(always)]
   pub(crate) fn rx(&self) -> &Receiver<T> {
     unsafe { &**(*self.rx.get()).assume_init_ref() }
   }
 
-  #[allow(clippy::mut_from_ref)]
+  #[cfg(loom)]
   #[inline(always)]
-  unsafe fn rx_mut(&self) -> &mut MaybeUninit<*const Receiver<T>> {
-    &mut *self.rx.get()
+  pub(crate) fn rx(&self) -> &Receiver<T> {
+    unsafe { &**(*self.rx.get().deref()).assume_init_ref() }
   }
 
+  #[cfg(not(loom))]
+  #[inline(always)]
+  unsafe fn with_rx_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*mut MaybeUninit<*const Receiver<T>>) -> R,
+  {
+    f(self.rx.get())
+  }
+
+  #[cfg(loom)]
+  #[inline(always)]
+  unsafe fn with_rx_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*mut MaybeUninit<*const Receiver<T>>) -> R,
+  {
+    self.rx.get_mut().with(f)
+  }
+
+  #[cfg(not(loom))]
   #[inline(always)]
   pub fn task(&self) -> &T::Task {
     unsafe { (*self.task.get()).assume_init_ref() }
   }
 
-  #[allow(clippy::mut_from_ref)]
+  #[cfg(not(loom))]
   #[inline(always)]
-  unsafe fn task_mut(&self) -> &mut MaybeUninit<T::Task> {
-    &mut *self.task.get()
+  unsafe fn with_task_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*mut MaybeUninit<T::Task>) -> R,
+  {
+    f(self.task.get())
+  }
+
+  #[cfg(loom)]
+  #[inline(always)]
+  unsafe fn with_task_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*mut MaybeUninit<T::Task>) -> R,
+  {
+    self.task.get_mut().with(f)
   }
 
   pub(crate) unsafe fn set_task(&self, task: T::Task, rx: *const Receiver<T>) {
     self.reset_state();
-    self.rx_mut().write(rx);
-    self.task_mut().write(task);
+    self.with_rx_mut(|val| val.write(MaybeUninit::new(rx)));
+    self.with_task_mut(|val| val.write(MaybeUninit::new(task)));
   }
 
   #[inline(always)]
   pub(crate) unsafe fn take_task_unchecked(&self) -> T::Task {
-    std::mem::replace(&mut *self.task.get(), MaybeUninit::uninit()).assume_init()
+    self.with_task_mut(|val| std::mem::replace(&mut *val, MaybeUninit::uninit()).assume_init())
   }
 
   /// Set value in receiver and wake if the receiver isn't already dropped. This takes &self because
   /// [`TaskRef`] by design is never dropped
   pub(crate) unsafe fn resolve_unchecked(&self, value: T::Value) {
-    let state = self.state().fetch_or(SETTING_VALUE, Ordering::AcqRel);
+    let state = self.with_state(|val| (*val).fetch_or(SETTING_VALUE, Ordering::AcqRel));
 
     if (state & RECEIVER_DROPPED).eq(&0) {
       let rx = self.rx();
-      *rx.value.get() = MaybeUninit::new(value);
+      rx.with_value_mut(|val| {
+        val.write(MaybeUninit::new(value));
+      });
       rx.waker.wake_by_ref();
-      self
-        .state()
-        .fetch_xor(SETTING_VALUE | VALUE_SET, Ordering::Release);
+      self.with_state(|val| {
+        (*val).fetch_xor(SETTING_VALUE | VALUE_SET, Ordering::Release);
+      });
     }
   }
 }
 
+#[cfg(not(loom))]
 impl<T> Debug for TaskRef<T>
 where
   T: TaskQueue,
@@ -196,7 +265,7 @@ impl<T> Receiver<T>
 where
   T: TaskQueue,
 {
-  fn new(state: *const AtomicUsize, waker: Waker) -> Self {
+  pub(crate) fn new(state: *const AtomicUsize, waker: Waker) -> Self {
     Receiver {
       state,
       value: UnsafeCell::new(MaybeUninit::uninit()),
@@ -209,6 +278,24 @@ where
   fn state(&self) -> &AtomicUsize {
     unsafe { &*self.state }
   }
+
+  #[cfg(not(loom))]
+  #[inline(always)]
+  unsafe fn with_value_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*mut MaybeUninit<T::Value>) -> R,
+  {
+    f(self.value.get())
+  }
+
+  #[cfg(loom)]
+  #[inline(always)]
+  unsafe fn with_value_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*mut MaybeUninit<T::Value>) -> R,
+  {
+    self.value.get_mut().with(f)
+  }
 }
 
 // This is safe because state is guaranteed to be immovable and to exist
@@ -216,7 +303,7 @@ unsafe impl<T> Send for Receiver<T> where T: TaskQueue {}
 unsafe impl<T> Sync for Receiver<T> where T: TaskQueue {}
 
 #[pin_project(project = StateProj)]
-enum State<T: TaskQueue> {
+pub(crate) enum State<T: TaskQueue> {
   Unbatched { task: T::Task },
   Batched(#[pin] Receiver<T>),
   Received,
@@ -225,7 +312,7 @@ enum State<T: TaskQueue> {
 /// An automatically batched task
 #[pin_project(project = AutoBatchProj, PinnedDrop)]
 pub struct AutoBatchedTask<T: LocalQueue<N>, const N: usize = 2048> {
-  state: State<T>,
+  pub(crate) state: State<T>,
 }
 
 impl<T, const N: usize> AutoBatchedTask<T, N>
@@ -290,7 +377,7 @@ where
       }
       State::Batched(_) => {
         let value = match std::mem::replace(this.state, State::Received) {
-          State::Batched(rx) => unsafe { (*rx.value.get()).assume_init_read() },
+          State::Batched(rx) => unsafe { rx.with_value_mut(|val| (*val).assume_init_read()) },
           _ => unsafe { unreachable_unchecked() },
         };
 
@@ -317,7 +404,11 @@ where
       }
 
       if (state & VALUE_SET).eq(&VALUE_SET) {
-        unsafe { (*rx.value.get()).assume_init_drop() }
+        unsafe {
+          rx.with_value_mut(|val| {
+            (*val).assume_init_drop();
+          });
+        }
       }
     }
   }

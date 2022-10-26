@@ -1,11 +1,19 @@
+use std::{array, fmt::Debug, ops::BitAnd, ptr::addr_of};
 #[cfg(not(loom))]
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::{array, cell::UnsafeCell, fmt::Debug, ops::BitAnd, ptr::addr_of, thread::LocalKey};
+use std::{
+  cell::UnsafeCell,
+  sync::atomic::{AtomicUsize, Ordering},
+  thread::LocalKey,
+};
 
 use async_t::async_trait;
 use cache_padded::CachePadded;
 #[cfg(loom)]
-use loom::sync::atomic::{AtomicUsize, Ordering};
+use loom::{
+  cell::UnsafeCell,
+  sync::atomic::{AtomicUsize, Ordering},
+  thread::LocalKey,
+};
 #[cfg(not(loom))]
 use tokio::runtime::Handle;
 
@@ -94,14 +102,85 @@ impl<T: TaskQueue, const N: usize> StackQueue<T, N>
 where
   T: TaskQueue,
 {
+  #[cfg(not(loom))]
+  #[inline(always)]
+  unsafe fn with_slot<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*const usize) -> R,
+  {
+    f(self.slot.get())
+  }
+
+  #[cfg(loom)]
+  #[inline(always)]
+  unsafe fn with_slot<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*const usize) -> R,
+  {
+    self.slot.get().with(f)
+  }
+
+  #[cfg(not(loom))]
+  #[inline(always)]
+  unsafe fn with_slot_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*mut usize) -> R,
+  {
+    f(self.slot.get())
+  }
+
+  #[cfg(loom)]
+  #[inline(always)]
+  unsafe fn with_slot_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*mut usize) -> R,
+  {
+    self.slot.get_mut().with(f)
+  }
+
+  #[cfg(not(loom))]
+  #[inline(always)]
+  unsafe fn with_occupancy<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*const usize) -> R,
+  {
+    f(self.occupancy.get())
+  }
+
+  #[cfg(loom)]
+  #[inline(always)]
+  unsafe fn with_occupancy<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*const usize) -> R,
+  {
+    self.occupancy.get().with(f)
+  }
+
+  #[cfg(not(loom))]
+  #[inline(always)]
+  unsafe fn with_occupancy_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*mut usize) -> R,
+  {
+    f(self.occupancy.get())
+  }
+
+  #[cfg(loom)]
+  #[inline(always)]
+  unsafe fn with_occupancy_mut<F, R>(&self, f: F) -> R
+  where
+    F: FnOnce(*mut usize) -> R,
+  {
+    self.occupancy.get_mut().with(f)
+  }
+
   #[inline(always)]
   fn current_write_index(&self) -> usize {
     // This algorithm can utilize an UnsafeCell for the index counter because where the current task
     // is written is independent of when a phase change would result in a new task batch owning a
     // new range of the buffer; only ownership is determined by atomic synchronization, not location
-    let slot = unsafe { &*self.slot.get() };
 
-    slot_index::<N>(slot)
+    unsafe { self.with_slot(|val| slot_index::<N>(&*val)) }
   }
 
   fn check_regional_occupancy(&self, index: &usize) -> Result<(), QueueFull> {
@@ -110,7 +189,11 @@ where
     // If this is out of sync, then the region could be incorrectly marked as full, but never
     // incorrectly marked as free, and so this optimization allows us to avoid the overhead of an
     // atomic call so long as regions are cleared within a full cycle
-    if unsafe { &*self.occupancy.get() }.bitand(region_mask).eq(&0) {
+
+    let regional_occupancy =
+      unsafe { self.with_occupancy(|occupancy| (*occupancy).bitand(region_mask)) };
+
+    if regional_occupancy.eq(&0) {
       return Ok(());
     }
 
@@ -118,7 +201,9 @@ where
     let occupancy = self.inner.occupancy.load(Ordering::Relaxed);
     let regional_occupancy = occupancy.bitand(region_mask);
 
-    unsafe { *self.occupancy.get() = occupancy };
+    unsafe {
+      self.with_occupancy_mut(move |val| *val = occupancy);
+    }
 
     if regional_occupancy.eq(&0) {
       Ok(())
@@ -138,7 +223,9 @@ where
       .fetch_add(shifted_add, Ordering::Relaxed)
       .wrapping_add(shifted_add);
 
-    unsafe { *self.occupancy.get() = occupancy };
+    unsafe {
+      self.with_occupancy_mut(move |val| *val = occupancy);
+    }
   }
 
   unsafe fn write_with<F>(&self, index: &usize, write_with: F)
@@ -151,8 +238,8 @@ where
   }
 
   #[inline(always)]
-  fn replace_slot(&self, slot: usize) -> usize {
-    std::mem::replace(unsafe { &mut *self.slot.get() }, slot)
+  unsafe fn replace_slot(&self, slot: usize) -> usize {
+    self.with_slot_mut(move |val| std::mem::replace(&mut *val, slot))
   }
 
   pub(crate) fn enqueue<'a, F>(
@@ -178,7 +265,7 @@ where
       .slot
       .fetch_add(1 << INDEX_SHIFT, Ordering::Relaxed);
 
-    let prev_slot = self.replace_slot(base_slot.wrapping_add(1 << INDEX_SHIFT));
+    let prev_slot = unsafe { self.replace_slot(base_slot.wrapping_add(1 << INDEX_SHIFT)) };
 
     if write_index.ne(&0) && ((base_slot ^ prev_slot) & active_phase_bit::<N>(&base_slot)).eq(&0) {
       Ok(None)
@@ -213,17 +300,19 @@ where
 }
 #[cfg(all(test))]
 mod test {
-  use std::{sync::Arc, thread, time::Duration};
+  use std::{thread, time::Duration};
 
   use async_t::async_trait;
   use derive_stack_queue::LocalQueue;
+  #[cfg(not(loom))]
   use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
-  #[cfg(loom)]
-  use loom::{future::block_on, model};
-  use tokio::{sync::Barrier, task::yield_now};
+  use tokio::task::yield_now;
 
-  use super::{LocalQueue, TaskQueue};
+  #[cfg(not(loom))]
+  use super::LocalQueue;
+  use super::TaskQueue;
   use crate::assignment::{CompletionReceipt, PendingAssignment};
+
   #[derive(LocalQueue)]
   #[local_queue(buffer_size = 256)]
   struct EchoQueue;
@@ -244,21 +333,9 @@ mod test {
   #[tokio::test(flavor = "multi_thread")]
 
   async fn it_process_tasks() {
-    let batch: Vec<usize> = join_all((0..100).map(|i| EchoQueue::auto_batch(i))).await;
+    let batch: Vec<usize> = join_all((0..100).map(EchoQueue::auto_batch)).await;
 
     assert_eq!(batch, (0..100).collect::<Vec<usize>>());
-  }
-
-  #[cfg(loom)]
-  #[test]
-  fn it_process_tasks() {
-    model(|| {
-      block_on(async {
-        let batch: Vec<usize> = join_all((0..100).map(|i| EchoQueue::auto_batch(i))).await;
-
-        assert_eq!(batch, (0..100).collect::<Vec<usize>>());
-      });
-    });
   }
 
   #[cfg(not(loom))]
@@ -268,18 +345,6 @@ mod test {
     for i in 0..512 {
       EchoQueue::auto_batch(i).await;
     }
-  }
-
-  #[cfg(loom)]
-  #[test]
-  fn it_cycles() {
-    model(|| {
-      block_on(async {
-        for i in 0..512 {
-          EchoQueue::auto_batch(i).await;
-        }
-      });
-    });
   }
 
   #[derive(LocalQueue)]
@@ -341,6 +406,10 @@ mod test {
   #[tokio::test(flavor = "multi_thread")]
 
   async fn it_negotiates_receiver_drop() {
+    use std::sync::Arc;
+
+    use tokio::sync::Barrier;
+
     let tasks: FuturesUnordered<_> = (0..256)
       .map(|i| async move {
         let barrier = Arc::new(Barrier::new(2));
@@ -365,26 +434,68 @@ mod test {
   #[cfg(loom)]
   #[test]
   fn it_negotiates_receiver_drop() {
-    model(|| {
-      let tasks: FuturesUnordered<_> = (0..64)
-        .map(|i| async move {
-          let barrier = Arc::new(Barrier::new(2));
+    use std::{hint::unreachable_unchecked, ptr::addr_of};
 
-          let task_barrier = barrier.clone();
+    use futures::pin_mut;
+    use futures_test::task::noop_waker;
+    use loom::sync::{Arc, Condvar, Mutex};
 
-          let handle = tokio::task::spawn(async move {
-            task_barrier.wait().await;
-            YieldQueue::auto_batch(i).await;
-          });
+    use crate::task::{AutoBatchedTask, Receiver, State, TaskRef};
 
-          barrier.wait().await;
-          yield_now().await;
+    loom::model(|| {
+      let task: Arc<TaskRef<EchoQueue>> = Arc::new(TaskRef::new_uninit());
+      let barrier = Arc::new((Mutex::new(false), Condvar::new()));
 
-          handle.abort()
+      let resolver_handle = {
+        let task = task.clone();
+        let barrier = barrier.clone();
+
+        loom::thread::spawn(move || {
+          let (lock, cvar) = &*barrier;
+          let mut task_initialized = lock.lock().unwrap();
+          while !*task_initialized {
+            task_initialized = cvar.wait(task_initialized).unwrap();
+          }
+
+          unsafe {
+            task.resolve_unchecked(9001);
+          }
         })
-        .collect();
+      };
 
-      block_on(tasks.collect::<Vec<_>>());
+      let receiver_handle = {
+        loom::thread::spawn(move || {
+          let waker = noop_waker();
+
+          let rx: Receiver<EchoQueue> = Receiver::new(task.state_ptr(), waker);
+
+          let auto_batched_task: AutoBatchedTask<EchoQueue, 256> = AutoBatchedTask {
+            state: State::Batched(rx),
+          };
+
+          pin_mut!(auto_batched_task);
+
+          let rx = match &auto_batched_task.state {
+            State::Batched(rx) => {
+              addr_of!(*rx)
+            }
+            _ => unsafe { unreachable_unchecked() },
+          };
+
+          unsafe { task.set_task(9001, rx) };
+
+          let (lock, cvar) = &*barrier;
+          let mut task_initialized = lock.lock().unwrap();
+          *task_initialized = true;
+          cvar.notify_one();
+
+          #[allow(clippy::drop_non_drop)]
+          drop(auto_batched_task);
+        })
+      };
+
+      resolver_handle.join().unwrap();
+      receiver_handle.join().unwrap();
     });
   }
 }

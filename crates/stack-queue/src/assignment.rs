@@ -175,10 +175,10 @@ where
 
   /// Resolve task assignment within a thread where blocking is acceptable with an iterator where
   /// indexes align with tasks
-  pub async fn resolve_blocking<F, I>(self, f: F) -> CompletionReceipt<T>
+  pub async fn resolve_blocking<F, R>(self, f: F) -> CompletionReceipt<T>
   where
-    F: FnOnce(Vec<T::Task>) -> I + Send + 'static,
-    I: IntoIterator<Item = T::Value> + Send + 'static,
+    F: FnOnce(Vec<T::Task>) -> R + Send + 'static,
+    R: IntoIterator<Item = T::Value> + Send + 'static,
   {
     let (tasks, guard) = AssignmentGuard::from_assignment(self);
 

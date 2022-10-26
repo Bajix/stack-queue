@@ -32,9 +32,21 @@ pub fn derive_local_queue(input: proc_macro::TokenStream) -> proc_macro::TokenSt
     stack_queue::sa::const_assert!(#buffer_size <= stack_queue::MAX_BUFFER_LEN);
     stack_queue::sa::const_assert_eq!(#buffer_size, #buffer_size.next_power_of_two());
 
+    #[cfg(not(loom))]
     impl stack_queue::LocalQueue<#buffer_size> for #ident {
       fn queue() -> &'static std::thread::LocalKey<stack_queue::StackQueue<Self, #buffer_size>> {
         thread_local! {
+          static QUEUE: stack_queue::StackQueue<#ident, #buffer_size> = stack_queue::StackQueue::default();
+        }
+
+        &QUEUE
+      }
+    }
+
+    #[cfg(loom)]
+    impl stack_queue::LocalQueue<#buffer_size> for #ident {
+      fn queue() -> &'static stack_queue::loom::thread::LocalKey<stack_queue::StackQueue<Self, #buffer_size>> {
+        stack_queue::loom::thread_local! {
           static QUEUE: stack_queue::StackQueue<#ident, #buffer_size> = stack_queue::StackQueue::default();
         }
 

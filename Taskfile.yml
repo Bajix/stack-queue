@@ -7,6 +7,13 @@ sources:
   - crates/stack-queue/**/*.rs
 
 tasks:
+  default:
+    cmds:
+      - task: clippy-tests
+      - task: clippy-loom
+      - task: test-address-sanitizer
+      - task: test-loom
+
   doc:
     cmds:
       - cargo doc -p stack-queue --open
@@ -31,6 +38,34 @@ tasks:
       - crates/stack-queue/**/*.rs
     env:
       MIRIFLAGS: -Zmiri-backtrace=full
+
+  clippy-tests:
+    cmds:
+      - cargo clippy --tests
+    sources:
+      - crates/stack-queue/**/*.rs
+
+  clippy-loom:
+    cmds:
+      - cargo clippy --tests
+    sources:
+      - crates/stack-queue/**/*.rs
+    env:
+      RUSTFLAGS: --cfg loom
+
+  check-tests:
+    cmds:
+      - cargo check --tests
+    sources:
+      - crates/stack-queue/**/*.rs
+
+  check-loom:
+    cmds:
+      - cargo check --tests
+    sources:
+      - crates/stack-queue/**/*.rs
+    env:
+      RUSTFLAGS: --cfg loom
 
   test-loom:
     cmds:

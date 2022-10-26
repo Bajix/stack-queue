@@ -6,6 +6,10 @@ extern crate self as stack_queue;
 pub extern crate static_assertions as sa;
 
 #[doc(hidden)]
+#[cfg(loom)]
+pub extern crate loom;
+
+#[doc(hidden)]
 pub const MIN_BUFFER_LEN: usize = 256;
 
 #[doc(hidden)]
