@@ -255,7 +255,7 @@ where
 
     match this.state {
       State::Unbatched { task: _ } => {
-        match T::queue().with(|queue| {
+        match T::queue().try_with(|queue| {
           queue.enqueue(|state_ptr| {
             let task = {
               let state = std::mem::replace(
@@ -279,12 +279,12 @@ where
             (task, rx)
           })
         }) {
-          Ok(Some(assignment)) => {
+          Ok(Ok(Some(assignment))) => {
             tokio::task::spawn(async move {
               T::batch_process::<N>(assignment).await;
             });
           }
-          Err(QueueFull) => {
+          Ok(Err(QueueFull)) => {
             cx.waker().wake_by_ref();
           }
           _ => {}
