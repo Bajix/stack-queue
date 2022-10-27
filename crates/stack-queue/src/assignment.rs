@@ -1,5 +1,5 @@
 #[cfg(not(loom))]
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{fence, Ordering};
 use std::{
   marker::PhantomData,
   mem,
@@ -7,7 +7,7 @@ use std::{
 };
 
 #[cfg(loom)]
-use loom::sync::atomic::Ordering;
+use loom::sync::atomic::{fence, Ordering};
 
 use crate::{
   helpers::{active_phase_bit, one_shifted},
@@ -200,6 +200,7 @@ where
       .iter()
       .for_each(|task_ref| unsafe { drop(task_ref.take_task_unchecked()) });
 
+    fence(Ordering::Release);
     self.deoccupy_buffer();
   }
 }
@@ -283,6 +284,7 @@ where
   T: TaskQueue,
 {
   fn drop(&mut self) {
+    fence(Ordering::Release);
     self.deoccupy_buffer();
   }
 }

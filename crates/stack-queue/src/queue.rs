@@ -203,7 +203,7 @@ where
   T: TaskQueue,
 {
   fn drop(&mut self) {
-    while self.inner.occupancy.load(Ordering::Relaxed).ne(&0) {
+    while self.inner.occupancy.load(Ordering::Acquire).ne(&0) {
       match Handle::try_current() {
         Ok(handle) => handle.block_on(tokio::task::yield_now()),
         Err(_) => break,
