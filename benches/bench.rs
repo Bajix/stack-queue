@@ -35,6 +35,42 @@ impl TaskQueue for AssignmentTimeQueue {
   }
 }
 
+#[derive(LocalQueue)]
+pub struct EnqueueTimeQueue;
+
+#[async_trait]
+impl TaskQueue for EnqueueTimeQueue {
+  type Task = Instant;
+  type Value = Duration;
+
+  async fn batch_process<const N: usize>(
+    batch: PendingAssignment<'async_trait, Self, N>,
+  ) -> CompletionReceipt<Self> {
+    let assignment = batch.into_assignment();
+    let batched_at = Instant::now();
+
+    assignment.map(|enqueued_at| batched_at.duration_since(enqueued_at))
+  }
+}
+
+#[derive(LocalQueue)]
+pub struct ReceiveTimeQueue;
+
+#[async_trait]
+impl TaskQueue for ReceiveTimeQueue {
+  type Task = ();
+  type Value = Instant;
+
+  async fn batch_process<const N: usize>(
+    batch: PendingAssignment<'async_trait, Self, N>,
+  ) -> CompletionReceipt<Self> {
+    let assignment = batch.into_assignment();
+    let batched_at = Instant::now();
+
+    assignment.resolve_with_iter(iter::repeat(batched_at))
+  }
+}
+
 fn criterion_benchmark(c: &mut Criterion) {
   let rt = Builder::new_current_thread().build().unwrap();
 
@@ -43,12 +79,36 @@ fn criterion_benchmark(c: &mut Criterion) {
   assignment_benches.warm_up_time(Duration::from_secs(1));
   assignment_benches.sample_size(10);
 
+  assignment_benches.bench_function("enqueue", |bencher| {
+    bencher.to_async(&rt).iter_custom(|iters| async move {
+      let mut total = Duration::from_secs(0);
+
+      for _i in 0..iters {
+        total = total.saturating_add(EnqueueTimeQueue::auto_batch(Instant::now()).await);
+      }
+
+      total
+    });
+  });
+
   assignment_benches.bench_function("into_assignment", |bencher| {
     bencher.to_async(&rt).iter_custom(|iters| async move {
       let mut total = Duration::from_secs(0);
 
       for _i in 0..iters {
         total = total.saturating_add(AssignmentTimeQueue::auto_batch(()).await);
+      }
+
+      total
+    });
+  });
+
+  assignment_benches.bench_function("receive", |bencher| {
+    bencher.to_async(&rt).iter_custom(|iters| async move {
+      let mut total = Duration::from_secs(0);
+
+      for _i in 0..iters {
+        total = total.saturating_add(ReceiveTimeQueue::auto_batch(()).await.elapsed());
       }
 
       total
