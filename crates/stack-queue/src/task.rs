@@ -206,7 +206,7 @@ where
   /// Set value in receiver and wake if the receiver isn't already dropped. This takes &self because
   /// [`TaskRef`] by design is never dropped
   pub(crate) unsafe fn resolve_unchecked(&self, value: T::Value) {
-    let state = self.with_state(|val| (*val).fetch_or(SETTING_VALUE, Ordering::AcqRel));
+    let state = self.with_state(|val| (*val).fetch_or(SETTING_VALUE, Ordering::Release));
 
     if (state & RECEIVER_DROPPED).eq(&0) {
       let rx = self.rx();
