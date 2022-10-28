@@ -367,7 +367,7 @@ where
               T::batch_process::<N>(assignment).await;
             });
           }
-          Ok(Err(QueueFull)) => {
+          Ok(Err(QueueFull)) | Err(_) => {
             cx.waker().wake_by_ref();
           }
           _ => {}
