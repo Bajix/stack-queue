@@ -11,7 +11,7 @@ use stack_queue::{
   assignment::{CompletionReceipt, PendingAssignment},
   LocalQueue, TaskQueue,
 };
-use tokio::runtime::Builder;
+use tokio::{runtime::Builder, sync::oneshot};
 
 #[global_allocator]
 static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
@@ -74,12 +74,12 @@ impl TaskQueue for ReceiveTimeQueue {
 fn criterion_benchmark(c: &mut Criterion) {
   let rt = Builder::new_current_thread().build().unwrap();
 
-  let mut assignment_benches = c.benchmark_group("Task Collection");
-  assignment_benches.sampling_mode(SamplingMode::Linear);
-  assignment_benches.warm_up_time(Duration::from_secs(1));
-  assignment_benches.sample_size(10);
+  let mut task_benches = c.benchmark_group("Task");
+  task_benches.sampling_mode(SamplingMode::Linear);
+  task_benches.warm_up_time(Duration::from_secs(1));
+  task_benches.sample_size(10);
 
-  assignment_benches.bench_function("enqueue", |bencher| {
+  task_benches.bench_function("enqueue", |bencher| {
     bencher.to_async(&rt).iter_custom(|iters| async move {
       let mut total = Duration::from_secs(0);
 
@@ -91,7 +91,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
   });
 
-  assignment_benches.bench_function("into_assignment", |bencher| {
+  task_benches.bench_function("into_assignment", |bencher| {
     bencher.to_async(&rt).iter_custom(|iters| async move {
       let mut total = Duration::from_secs(0);
 
@@ -103,7 +103,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
   });
 
-  assignment_benches.bench_function("receive", |bencher| {
+  task_benches.bench_function("receive value", |bencher| {
     bencher.to_async(&rt).iter_custom(|iters| async move {
       let mut total = Duration::from_secs(0);
 
@@ -115,7 +115,32 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
   });
 
-  assignment_benches.finish();
+  task_benches.finish();
+
+  let mut comparison_benches = c.benchmark_group("Tokio");
+  comparison_benches.sampling_mode(SamplingMode::Linear);
+  comparison_benches.warm_up_time(Duration::from_secs(1));
+  comparison_benches.sample_size(10);
+
+  comparison_benches.bench_function("oneshot receive", |bencher| {
+    bencher.to_async(&rt).iter_custom(|iters| async move {
+      let mut total = Duration::from_secs(0);
+
+      for _i in 0..iters {
+        let (tx, rx) = oneshot::channel();
+
+        tokio::task::spawn(async move {
+          tx.send(Instant::now()).ok();
+        });
+
+        total = total.saturating_add(rx.await.unwrap().elapsed());
+      }
+
+      total
+    });
+  });
+
+  comparison_benches.finish();
 
   let mut batching_benches = c.benchmark_group("Batching");
   batching_benches.sampling_mode(SamplingMode::Linear);
