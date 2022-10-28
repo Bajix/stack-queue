@@ -269,6 +269,9 @@ where
       .for_each(|(task_ref, value)| unsafe {
         task_ref.resolve_unchecked(value);
       });
+
+    self.deoccupy_buffer();
+    mem::forget(self);
   }
 
   fn deoccupy_buffer(&self) {
