@@ -70,6 +70,7 @@ where
 #[derive(Debug)]
 pub(crate) struct QueueFull;
 
+#[doc(hidden)]
 /// Task queue designed for facilitating heapless auto-batching of tasks
 pub struct StackQueue<T: TaskQueue, const N: usize = 2048> {
   slot: CachePadded<UnsafeCell<usize>>,
