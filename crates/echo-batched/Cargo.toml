@@ -12,7 +12,7 @@ repository = "https://github.com/Bajix/stack-queue/"
 async_t = "0.7"
 crossbeam-deque = "0.8.2"
 flume = "0.10.14"
-futures = "0.3.24"
+futures = "0.3.25"
 swap-queue = "1.1.0"
 tokio = { version = "1", features = ["rt", "macros", "time"] }
 stack-queue = { path = "../stack-queue" }
