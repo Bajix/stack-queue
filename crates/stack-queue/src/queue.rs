@@ -1,4 +1,4 @@
-use std::{array, fmt::Debug, ops::BitAnd, ptr::addr_of};
+use std::{array, fmt::Debug, mem::MaybeUninit, ops::BitAnd, ptr::addr_of};
 #[cfg(not(loom))]
 use std::{
   cell::UnsafeCell,
@@ -20,6 +20,7 @@ use tokio::runtime::Handle;
 use crate::{
   assignment::{CompletionReceipt, PendingAssignment},
   helpers::*,
+  slice::UnboundedSlice,
   task::{AutoBatchedTask, Receiver, TaskRef},
   MAX_BUFFER_LEN, MIN_BUFFER_LEN,
 };
@@ -47,17 +48,58 @@ pub trait LocalQueue<const N: usize>: TaskQueue {
   }
 }
 
+#[async_trait]
+pub trait SliceQueue: Send + Sync + Sized + 'static {
+  type Task: Send + Sync + Sized + 'static;
+
+  #[allow(clippy::needless_lifetimes)]
+  async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self, N>);
+}
+
+pub trait LocalSliceQueue<const N: usize>: SliceQueue {
+  fn queue() -> &'static LocalKey<StackQueue<UnsafeCell<MaybeUninit<Self::Task>>, N>>;
+
+  fn auto_batch(task: Self::Task) {
+    Self::queue().with(|queue| match queue.push::<Self>(task) {
+      Ok(Some(assignment)) => {
+        tokio::task::spawn(async move {
+          Self::batch_process(assignment).await;
+        });
+      }
+      Ok(None) => {}
+      Err(task) => {
+        tokio::task::spawn(async move {
+          Self::auto_batch(task);
+        });
+      }
+    });
+  }
+}
+
 pub(crate) struct Inner<T, const N: usize = 2048> {
   pub(crate) slot: CachePadded<AtomicUsize>,
   pub(crate) occupancy: CachePadded<AtomicUsize>,
   pub(crate) buffer: [T; N],
 }
-impl<T, const N: usize> Inner<T, N>
+
+impl<T, const N: usize> Default for Inner<UnsafeCell<MaybeUninit<T>>, N> {
+  fn default() -> Self {
+    let buffer = array::from_fn(|_| UnsafeCell::new(MaybeUninit::uninit()));
+
+    Inner {
+      slot: CachePadded::new(AtomicUsize::new(0)),
+      occupancy: CachePadded::new(AtomicUsize::new(0)),
+      buffer,
+    }
+  }
+}
+
+impl<T, const N: usize> Default for Inner<TaskRef<T>, N>
 where
-  T: Default,
+  T: TaskQueue,
 {
-  fn new() -> Self {
-    let buffer = array::from_fn(|_| Default::default());
+  fn default() -> Self {
+    let buffer = array::from_fn(|_| TaskRef::new_uninit());
 
     Inner {
       slot: CachePadded::new(AtomicUsize::new(0)),
@@ -78,9 +120,9 @@ pub struct StackQueue<T, const N: usize = 2048> {
   inner: Inner<T, N>,
 }
 
-impl<T: TaskQueue, const N: usize> Default for StackQueue<TaskRef<T>, N>
+impl<T, const N: usize> Default for StackQueue<T, N>
 where
-  T: TaskQueue,
+  Inner<T, N>: Default,
 {
   fn default() -> Self {
     assert_eq!(
@@ -94,7 +136,7 @@ where
     StackQueue {
       slot: CachePadded::new(UnsafeCell::new(N << INDEX_SHIFT)),
       occupancy: CachePadded::new(UnsafeCell::new(0)),
-      inner: Inner::new(),
+      inner: Inner::default(),
     }
   }
 }
@@ -282,6 +324,63 @@ where
   }
 }
 
+impl<T, const N: usize> StackQueue<UnsafeCell<MaybeUninit<T>>, N> {
+  #[cfg(not(loom))]
+  #[inline(always)]
+  unsafe fn with_buffer_cell<F, R>(&self, f: F, index: usize) -> R
+  where
+    F: FnOnce(*mut MaybeUninit<T>) -> R,
+  {
+    let cell = self.inner.buffer.get_unchecked(index);
+    f(cell.get())
+  }
+
+  #[cfg(loom)]
+  #[inline(always)]
+  unsafe fn with_buffer_cell<F, R>(&self, f: F, index: usize) -> R
+  where
+    F: FnOnce(*mut MaybeUninit<T>) -> R,
+  {
+    let cell = self.inner.buffer.get_unchecked(index);
+    cell.get_mut().with(f)
+  }
+
+  pub(crate) fn push<'a, Q>(&self, task: T) -> Result<Option<UnboundedSlice<'a, Q, N>>, T>
+  where
+    Q: SliceQueue<Task = T>,
+  {
+    let write_index = self.current_write_index();
+
+    // Regions sizes are always a power of 2, and so this acts as an optimized modulus operation
+    if write_index.bitand(region_size::<N>() - 1).eq(&0)
+      && self.check_regional_occupancy(&write_index).is_err()
+    {
+      return Err(task);
+    }
+
+    unsafe {
+      self.with_buffer_cell(|cell| cell.write(MaybeUninit::new(task)), write_index);
+    }
+
+    let base_slot = self
+      .inner
+      .slot
+      .fetch_add(1 << INDEX_SHIFT, Ordering::Relaxed);
+
+    let prev_slot = unsafe { self.replace_slot(base_slot.wrapping_add(1 << INDEX_SHIFT)) };
+
+    if write_index.ne(&0) && ((base_slot ^ prev_slot) & active_phase_bit::<N>(&base_slot)).eq(&0) {
+      Ok(None)
+    } else {
+      self.occupy_region(&write_index);
+
+      let queue_ptr = addr_of!(self.inner);
+
+      Ok(Some(UnboundedSlice::new(base_slot, queue_ptr)))
+    }
+  }
+}
+
 // The purpose of this drop is to block deallocation to ensure the validity of references until
 // dropped as a way of sequencing shutdowns without introducing undefined behavior. While this
 // approach is not ideal, this is at worst an edge-case that can only happen after a shutdown signal
@@ -303,15 +402,15 @@ mod test {
   use std::{thread, time::Duration};
 
   use async_t::async_trait;
-  use derive_stack_queue::LocalQueue;
   #[cfg(not(loom))]
   use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
-  use tokio::task::yield_now;
+  use tokio::{sync::oneshot, task::yield_now};
 
-  #[cfg(not(loom))]
-  use super::LocalQueue;
-  use super::TaskQueue;
-  use crate::assignment::{CompletionReceipt, PendingAssignment};
+  use crate::{
+    assignment::{CompletionReceipt, PendingAssignment},
+    slice::UnboundedSlice,
+    LocalQueue, LocalSliceQueue, SliceQueue, TaskQueue,
+  };
 
   #[derive(LocalQueue)]
   #[local_queue(buffer_size = 256)]
@@ -497,5 +596,39 @@ mod test {
       resolver_handle.join().unwrap();
       receiver_handle.join().unwrap();
     });
+  }
+
+  #[derive(LocalSliceQueue)]
+  struct EchoSliceQueue;
+
+  #[async_trait]
+  impl SliceQueue for EchoSliceQueue {
+    type Task = (usize, oneshot::Sender<usize>);
+
+    async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self, N>) {
+      let tasks = tasks.into_bounded().to_vec();
+
+      for (val, tx) in tasks.into_iter() {
+        tx.send(val).ok();
+      }
+    }
+  }
+
+  #[cfg(not(loom))]
+  #[tokio::test(flavor = "multi_thread")]
+
+  async fn it_process_background_tasks() {
+    let receivers: Vec<_> = (0..100_usize)
+      .into_iter()
+      .map(|i| {
+        let (tx, rx) = oneshot::channel::<usize>();
+        EchoSliceQueue::auto_batch((i, tx));
+        rx
+      })
+      .collect();
+
+    for (i, rx) in receivers.into_iter().enumerate() {
+      assert_eq!(rx.await, Ok(i));
+    }
   }
 }

@@ -22,7 +22,8 @@ pub const MAX_BUFFER_LEN: usize = u16::MAX as usize;
 pub mod assignment;
 mod helpers;
 mod queue;
+pub mod slice;
 pub mod task;
 
-pub use derive_stack_queue::LocalQueue;
-pub use queue::{LocalQueue, StackQueue, TaskQueue};
+pub use derive_stack_queue::{LocalQueue, LocalSliceQueue};
+pub use queue::{LocalQueue, LocalSliceQueue, SliceQueue, StackQueue, TaskQueue};

@@ -9,7 +9,8 @@ use async_t::async_trait;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 use stack_queue::{
   assignment::{CompletionReceipt, PendingAssignment},
-  LocalQueue, TaskQueue,
+  slice::UnboundedSlice,
+  LocalQueue, LocalSliceQueue, SliceQueue, TaskQueue,
 };
 use tokio::{runtime::Builder, sync::oneshot};
 
@@ -68,6 +69,23 @@ impl TaskQueue for ReceiveTimeQueue {
     let batched_at = Instant::now();
 
     assignment.resolve_with_iter(iter::repeat(batched_at))
+  }
+}
+
+#[derive(LocalSliceQueue)]
+pub struct SliceTimerQueue;
+
+#[async_trait]
+impl SliceQueue for SliceTimerQueue {
+  type Task = (Instant, oneshot::Sender<Duration>);
+
+  async fn batch_process<const N: usize>(batch: UnboundedSlice<'async_trait, Self, N>) {
+    let tasks = batch.into_bounded().to_vec();
+    let collected_at = Instant::now();
+
+    tasks.into_iter().for_each(|(enqueued_at, tx)| {
+      tx.send(collected_at.duration_since(enqueued_at)).unwrap();
+    });
   }
 }
 
@@ -169,11 +187,40 @@ fn criterion_benchmark(c: &mut Criterion) {
     );
 
     batching_benches.bench_with_input(
-      BenchmarkId::new("stack-queue", batch_size),
+      BenchmarkId::new("stack-queue::TaskQueue", batch_size),
       &batch_size,
       |b, batch_size| {
         b.to_async(&rt)
           .iter(|| echo_batched::stack_queue::bench_batching(batch_size))
+      },
+    );
+
+    batching_benches.bench_with_input(
+      BenchmarkId::new("stack-queue::SliceQueue", batch_size),
+      &batch_size,
+      |b, batch_size| {
+        b.to_async(&rt).iter_custom(|iters| async move {
+          let mut total = Duration::from_secs(0);
+
+          for _ in 0..iters {
+            let receivers: Vec<_> = (0..*batch_size)
+              .into_iter()
+              .map(|_| {
+                let (tx, rx) = oneshot::channel();
+                let enqueued_at = Instant::now();
+                SliceTimerQueue::auto_batch((enqueued_at, tx));
+                rx
+              })
+              .collect();
+
+            tokio::task::yield_now().await;
+
+            let rx = receivers.into_iter().next().unwrap();
+            total = total.saturating_add(rx.await.unwrap());
+          }
+
+          total
+        })
       },
     );
 
