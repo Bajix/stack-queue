@@ -34,9 +34,9 @@ pub fn derive_local_queue(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 
     #[cfg(not(loom))]
     impl stack_queue::LocalQueue<#buffer_size> for #ident {
-      fn queue() -> &'static std::thread::LocalKey<stack_queue::StackQueue<Self, #buffer_size>> {
+      fn queue() -> &'static std::thread::LocalKey<stack_queue::StackQueue<stack_queue::task::TaskRef<#ident>, #buffer_size>> {
         thread_local! {
-          static QUEUE: stack_queue::StackQueue<#ident, #buffer_size> = stack_queue::StackQueue::default();
+          static QUEUE: stack_queue::StackQueue<stack_queue::task::TaskRef<#ident>, #buffer_size> = stack_queue::StackQueue::default();
         }
 
         &QUEUE
@@ -45,9 +45,9 @@ pub fn derive_local_queue(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 
     #[cfg(loom)]
     impl stack_queue::LocalQueue<#buffer_size> for #ident {
-      fn queue() -> &'static stack_queue::loom::thread::LocalKey<stack_queue::StackQueue<Self, #buffer_size>> {
+      fn queue() -> &'static stack_queue::loom::thread::LocalKey<stack_queue::StackQueue<stack_queue::task::TaskRef<#ident>, #buffer_size>> {
         stack_queue::loom::thread_local! {
-          static QUEUE: stack_queue::StackQueue<#ident, #buffer_size> = stack_queue::StackQueue::default();
+          static QUEUE: stack_queue::StackQueue<stack_queue::task::TaskRef<#ident>, #buffer_size> = stack_queue::StackQueue::default();
         }
 
         &QUEUE

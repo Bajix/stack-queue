@@ -40,24 +40,24 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
 }
 
 pub trait LocalQueue<const N: usize>: TaskQueue {
-  fn queue() -> &'static LocalKey<StackQueue<Self, N>>;
+  fn queue() -> &'static LocalKey<StackQueue<TaskRef<Self>, N>>;
 
   fn auto_batch(task: Self::Task) -> AutoBatchedTask<Self, N> {
     AutoBatchedTask::new(task)
   }
 }
 
-pub(crate) struct Inner<T: TaskQueue, const N: usize = 2048> {
+pub(crate) struct Inner<T, const N: usize = 2048> {
   pub(crate) slot: CachePadded<AtomicUsize>,
   pub(crate) occupancy: CachePadded<AtomicUsize>,
-  pub(crate) buffer: [TaskRef<T>; N],
+  pub(crate) buffer: [T; N],
 }
-impl<T: TaskQueue, const N: usize> Inner<T, N>
+impl<T, const N: usize> Inner<T, N>
 where
-  T: TaskQueue,
+  T: Default,
 {
   fn new() -> Self {
-    let buffer = array::from_fn(|_| TaskRef::new_uninit());
+    let buffer = array::from_fn(|_| Default::default());
 
     Inner {
       slot: CachePadded::new(AtomicUsize::new(0)),
@@ -72,13 +72,13 @@ pub(crate) struct QueueFull;
 
 #[doc(hidden)]
 /// Task queue designed for facilitating heapless auto-batching of tasks
-pub struct StackQueue<T: TaskQueue, const N: usize = 2048> {
+pub struct StackQueue<T, const N: usize = 2048> {
   slot: CachePadded<UnsafeCell<usize>>,
   occupancy: CachePadded<UnsafeCell<usize>>,
   inner: Inner<T, N>,
 }
 
-impl<T: TaskQueue, const N: usize> Default for StackQueue<T, N>
+impl<T: TaskQueue, const N: usize> Default for StackQueue<TaskRef<T>, N>
 where
   T: TaskQueue,
 {
@@ -99,10 +99,7 @@ where
   }
 }
 
-impl<T: TaskQueue, const N: usize> StackQueue<T, N>
-where
-  T: TaskQueue,
-{
+impl<T, const N: usize> StackQueue<T, N> {
   #[cfg(not(loom))]
   #[inline(always)]
   unsafe fn with_slot<F, R>(&self, f: F) -> R
@@ -229,6 +226,16 @@ where
     }
   }
 
+  #[inline(always)]
+  unsafe fn replace_slot(&self, slot: usize) -> usize {
+    self.with_slot_mut(move |val| std::mem::replace(&mut *val, slot))
+  }
+}
+
+impl<T, const N: usize> StackQueue<TaskRef<T>, N>
+where
+  T: TaskQueue,
+{
   unsafe fn write_with<F>(&self, index: &usize, write_with: F)
   where
     F: FnOnce(*const AtomicUsize) -> (T::Task, *const Receiver<T>),
@@ -236,11 +243,6 @@ where
     let task_ref = self.inner.buffer.get_unchecked(*index);
     let (task, rx) = write_with(task_ref.state_ptr());
     task_ref.set_task(task, rx);
-  }
-
-  #[inline(always)]
-  unsafe fn replace_slot(&self, slot: usize) -> usize {
-    self.with_slot_mut(move |val| std::mem::replace(&mut *val, slot))
   }
 
   pub(crate) fn enqueue<'a, F>(
@@ -286,10 +288,7 @@ where
 // has occurred, and so this is given preference over other techniques that would come at a
 // continuous performance cost. This approach allows us to avoid the necessity for condvar / mutexes
 #[cfg(not(loom))]
-impl<T: TaskQueue, const N: usize> Drop for StackQueue<T, N>
-where
-  T: TaskQueue,
-{
+impl<T, const N: usize> Drop for StackQueue<T, N> {
   fn drop(&mut self) {
     while self.inner.occupancy.load(Ordering::Acquire).ne(&0) {
       match Handle::try_current() {

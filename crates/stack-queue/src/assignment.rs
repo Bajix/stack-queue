@@ -18,7 +18,7 @@ use crate::{
 /// The responsibilty to process a yet to be assigned set of tasks on the queue.
 pub struct PendingAssignment<'a, T: TaskQueue, const N: usize> {
   base_slot: usize,
-  queue_ptr: *const Inner<T, N>,
+  queue_ptr: *const Inner<TaskRef<T>, N>,
   _phantom: PhantomData<&'a ()>,
 }
 
@@ -26,7 +26,7 @@ impl<'a, T, const N: usize> PendingAssignment<'a, T, N>
 where
   T: TaskQueue,
 {
-  pub(crate) fn new(base_slot: usize, queue_ptr: *const Inner<T, N>) -> Self {
+  pub(crate) fn new(base_slot: usize, queue_ptr: *const Inner<TaskRef<T>, N>) -> Self {
     PendingAssignment {
       base_slot,
       queue_ptr,
@@ -35,7 +35,7 @@ where
   }
 
   #[inline(always)]
-  fn queue(&self) -> &Inner<T, N> {
+  fn queue(&self) -> &Inner<TaskRef<T>, N> {
     // This can be safely dereferenced because Inner is immovable by design and will suspend it's
     // thread termination as necessary until no references exist
     unsafe { &*self.queue_ptr }
@@ -100,7 +100,7 @@ where
 /// An assignment of a task range to be processed
 pub struct TaskAssignment<'a, T: TaskQueue, const N: usize> {
   task_range: Range<usize>,
-  queue_ptr: *const Inner<T, N>,
+  queue_ptr: *const Inner<TaskRef<T>, N>,
   _phantom: PhantomData<&'a ()>,
 }
 
@@ -108,7 +108,7 @@ impl<'a, T, const N: usize> TaskAssignment<'a, T, N>
 where
   T: TaskQueue,
 {
-  fn new(task_range: Range<usize>, queue_ptr: *const Inner<T, N>) -> Self {
+  fn new(task_range: Range<usize>, queue_ptr: *const Inner<TaskRef<T>, N>) -> Self {
     TaskAssignment {
       task_range,
       queue_ptr,
@@ -117,7 +117,7 @@ where
   }
 
   #[inline(always)]
-  fn queue(&self) -> &Inner<T, N> {
+  fn queue(&self) -> &Inner<TaskRef<T>, N> {
     // This can be safely dereferenced because Inner is immovable by design and will block it's
     // thread termination as necessary until no references exist
     unsafe { &*self.queue_ptr }
@@ -212,7 +212,7 @@ unsafe impl<'a, T, const N: usize> Sync for TaskAssignment<'a, T, N> where T: Ta
 
 struct AssignmentGuard<'a, T: TaskQueue, const N: usize> {
   task_range: Range<usize>,
-  queue_ptr: *const Inner<T, N>,
+  queue_ptr: *const Inner<TaskRef<T>, N>,
   _phantom: PhantomData<&'a ()>,
 }
 
@@ -237,7 +237,7 @@ where
     (tasks, guard)
   }
 
-  fn new(task_range: Range<usize>, queue_ptr: *const Inner<T, N>) -> Self {
+  fn new(task_range: Range<usize>, queue_ptr: *const Inner<TaskRef<T>, N>) -> Self {
     AssignmentGuard {
       task_range,
       queue_ptr,
@@ -251,7 +251,7 @@ where
   }
 
   #[inline(always)]
-  fn queue(&self) -> &Inner<T, N> {
+  fn queue(&self) -> &Inner<TaskRef<T>, N> {
     // This can be safely dereferenced because Inner is immovable by design and will block it's
     // thread termination as necessary until no references exist
     unsafe { &*self.queue_ptr }
