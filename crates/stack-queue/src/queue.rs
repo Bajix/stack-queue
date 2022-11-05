@@ -16,6 +16,7 @@ use loom::{
 };
 #[cfg(not(loom))]
 use tokio::runtime::Handle;
+use tokio::task::yield_now;
 
 use crate::{
   assignment::{CompletionReceipt, PendingAssignment},
@@ -40,14 +41,6 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
   ) -> CompletionReceipt<Self>;
 }
 
-pub trait LocalQueue<const N: usize>: TaskQueue {
-  fn queue() -> &'static LocalKey<StackQueue<TaskRef<Self>, N>>;
-
-  fn auto_batch(task: Self::Task) -> AutoBatchedTask<Self, N> {
-    AutoBatchedTask::new(task)
-  }
-}
-
 #[async_trait]
 pub trait SliceQueue: Send + Sync + Sized + 'static {
   type Task: Send;
@@ -56,23 +49,19 @@ pub trait SliceQueue: Send + Sync + Sized + 'static {
   async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self, N>);
 }
 
+pub trait LocalQueue<const N: usize>: TaskQueue {
+  fn queue() -> &'static LocalKey<StackQueue<TaskRef<Self>, N>>;
+
+  fn auto_batch(task: Self::Task) -> AutoBatchedTask<Self, N> {
+    AutoBatchedTask::new(task)
+  }
+}
+
 pub trait LocalSliceQueue<const N: usize>: SliceQueue {
   fn queue() -> &'static LocalKey<StackQueue<UnsafeCell<MaybeUninit<Self::Task>>, N>>;
 
   fn auto_batch(task: Self::Task) {
-    Self::queue().with(|queue| match queue.push::<Self>(task) {
-      Ok(Some(assignment)) => {
-        tokio::task::spawn(async move {
-          Self::batch_process(assignment).await;
-        });
-      }
-      Ok(None) => {}
-      Err(task) => {
-        tokio::task::spawn(async move {
-          Self::auto_batch(task);
-        });
-      }
-    });
+    StackQueue::<UnsafeCell<MaybeUninit<Self::Task>>, N>::auto_batch::<Self>(task);
   }
 }
 
@@ -378,6 +367,39 @@ impl<T, const N: usize> StackQueue<UnsafeCell<MaybeUninit<T>>, N> {
 
       Ok(Some(UnboundedSlice::new(base_slot, queue_ptr)))
     }
+  }
+
+  pub fn auto_batch<Q>(task: Q::Task)
+  where
+    Q: LocalSliceQueue<N>,
+  {
+    Q::queue().with(|queue| match queue.push::<Q>(task) {
+      Ok(Some(assignment)) => {
+        tokio::task::spawn(async move {
+          Q::batch_process::<N>(assignment).await;
+        });
+      }
+      Ok(None) => {}
+      Err(mut task) => {
+        tokio::task::spawn(async move {
+          loop {
+            task = match Q::queue().with(|queue| queue.push::<Q>(task)) {
+              Ok(Some(assignment)) => {
+                Q::batch_process::<N>(assignment).await;
+                return;
+              }
+              Ok(None) => {
+                return;
+              }
+              Err(task) => {
+                yield_now().await;
+                task
+              }
+            };
+          }
+        });
+      }
+    });
   }
 }
 
