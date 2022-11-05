@@ -100,7 +100,12 @@ where
 // This is safe because queue_ptr is guaranteed to be immovable and non-null while
 // references exist
 unsafe impl<'a, T, const N: usize> Send for UnboundedSlice<'a, T, N> where T: SliceQueue {}
-unsafe impl<'a, T, const N: usize> Sync for UnboundedSlice<'a, T, N> where T: SliceQueue {}
+unsafe impl<'a, T, const N: usize> Sync for UnboundedSlice<'a, T, N>
+where
+  T: SliceQueue,
+  <T as SliceQueue>::Task: Sync,
+{
+}
 
 // A guarded task range to a thread local queue.
 pub struct BoundedSlice<'a, T: SliceQueue, const N: usize> {
@@ -181,4 +186,9 @@ where
 // This is safe because queue_ptr is guaranteed to be immovable and non-null while
 // references exist
 unsafe impl<'a, T, const N: usize> Send for BoundedSlice<'a, T, N> where T: SliceQueue {}
-unsafe impl<'a, T, const N: usize> Sync for BoundedSlice<'a, T, N> where T: SliceQueue {}
+unsafe impl<'a, T, const N: usize> Sync for BoundedSlice<'a, T, N>
+where
+  T: SliceQueue,
+  <T as SliceQueue>::Task: Sync,
+{
+}

@@ -83,7 +83,12 @@ where
 // This is safe because queue_ptr is guaranteed to be immovable and non-null while
 // references exist
 unsafe impl<'a, T, const N: usize> Send for PendingAssignment<'a, T, N> where T: TaskQueue {}
-unsafe impl<'a, T, const N: usize> Sync for PendingAssignment<'a, T, N> where T: TaskQueue {}
+unsafe impl<'a, T, const N: usize> Sync for PendingAssignment<'a, T, N>
+where
+  T: TaskQueue,
+  <T as TaskQueue>::Task: Sync,
+{
+}
 
 impl<'a, T, const N: usize> Drop for PendingAssignment<'a, T, N>
 where
@@ -208,7 +213,12 @@ where
 // This is safe because queue_ptr is guaranteed to be immovable and non-null while
 // references exist
 unsafe impl<'a, T, const N: usize> Send for TaskAssignment<'a, T, N> where T: TaskQueue {}
-unsafe impl<'a, T, const N: usize> Sync for TaskAssignment<'a, T, N> where T: TaskQueue {}
+unsafe impl<'a, T, const N: usize> Sync for TaskAssignment<'a, T, N>
+where
+  T: TaskQueue,
+  <T as TaskQueue>::Task: Sync,
+{
+}
 
 struct AssignmentGuard<'a, T: TaskQueue, const N: usize> {
   task_range: Range<usize>,
@@ -295,7 +305,12 @@ where
 // This is safe because queue_ptr is guaranteed to be immovable and non-null while
 // references exist
 unsafe impl<'a, T, const N: usize> Send for AssignmentGuard<'a, T, N> where T: TaskQueue {}
-unsafe impl<'a, T, const N: usize> Sync for AssignmentGuard<'a, T, N> where T: TaskQueue {}
+unsafe impl<'a, T, const N: usize> Sync for AssignmentGuard<'a, T, N>
+where
+  T: TaskQueue,
+  <T as TaskQueue>::Task: Sync,
+{
+}
 /// A type-state proof of completion for a task assignment
 pub struct CompletionReceipt<T: TaskQueue>(PhantomData<T>);
 

@@ -31,8 +31,8 @@ pub(crate) const INDEX_SHIFT: usize = 32;
 pub(crate) const INDEX_SHIFT: usize = 16;
 #[async_trait]
 pub trait TaskQueue: Send + Sync + Sized + 'static {
-  type Task: Send + Sync + Sized + 'static;
-  type Value: Send + Sync + Sized + 'static;
+  type Task: Send;
+  type Value: Send;
 
   #[allow(clippy::needless_lifetimes)]
   async fn batch_process<const N: usize>(
@@ -50,7 +50,7 @@ pub trait LocalQueue<const N: usize>: TaskQueue {
 
 #[async_trait]
 pub trait SliceQueue: Send + Sync + Sized + 'static {
-  type Task: Send + Sync + Sized + 'static;
+  type Task: Send;
 
   #[allow(clippy::needless_lifetimes)]
   async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self, N>);
@@ -424,6 +424,7 @@ mod test {
     async fn batch_process<const N: usize>(
       batch: PendingAssignment<'async_trait, Self, N>,
     ) -> CompletionReceipt<Self> {
+      yield_now().await;
       batch.into_assignment().map(|val| val)
     }
   }

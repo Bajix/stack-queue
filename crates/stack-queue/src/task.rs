@@ -232,7 +232,12 @@ where
   }
 }
 
-unsafe impl<T> Sync for TaskRef<T> where T: TaskQueue {}
+unsafe impl<T> Sync for TaskRef<T>
+where
+  T: TaskQueue,
+  <T as TaskQueue>::Task: Sync,
+{
+}
 
 #[cfg(feature = "diesel-associations")]
 impl<T, Parent> BelongsTo<Parent> for TaskRef<T>
@@ -300,7 +305,6 @@ where
 
 // This is safe because state is guaranteed to be immovable and to exist
 unsafe impl<T> Send for Receiver<T> where T: TaskQueue {}
-unsafe impl<T> Sync for Receiver<T> where T: TaskQueue {}
 
 #[pin_project(project = StateProj)]
 pub(crate) enum State<T: TaskQueue> {
