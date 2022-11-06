@@ -30,6 +30,10 @@ use crate::{
 pub(crate) const INDEX_SHIFT: usize = 32;
 #[cfg(target_pointer_width = "32")]
 pub(crate) const INDEX_SHIFT: usize = 16;
+
+#[doc(hidden)]
+pub type BufferCell<T> = UnsafeCell<MaybeUninit<T>>;
+
 #[async_trait]
 pub trait TaskQueue: Send + Sync + Sized + 'static {
   type Task: Send;
@@ -39,6 +43,13 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
   async fn batch_process<const N: usize>(
     assignment: PendingAssignment<'async_trait, Self, N>,
   ) -> CompletionReceipt<Self>;
+
+  fn auto_batch<const N: usize>(task: Self::Task) -> AutoBatchedTask<Self, N>
+  where
+    Self: LocalQueue<N, BufferCell = TaskRef<Self>>,
+  {
+    AutoBatchedTask::new(task)
+  }
 }
 
 #[async_trait]
@@ -47,22 +58,20 @@ pub trait SliceQueue: Send + Sync + Sized + 'static {
 
   #[allow(clippy::needless_lifetimes)]
   async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self, N>);
-}
 
-pub trait LocalQueue<const N: usize>: TaskQueue {
-  fn queue() -> &'static LocalKey<StackQueue<TaskRef<Self>, N>>;
-
-  fn auto_batch(task: Self::Task) -> AutoBatchedTask<Self, N> {
-    AutoBatchedTask::new(task)
+  fn auto_batch<const N: usize>(task: Self::Task)
+  where
+    Self: SliceQueue,
+    Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
+  {
+    StackQueue::<Self::BufferCell, N>::background_process::<Self>(task);
   }
 }
 
-pub trait LocalSliceQueue<const N: usize>: SliceQueue {
-  fn queue() -> &'static LocalKey<StackQueue<UnsafeCell<MaybeUninit<Self::Task>>, N>>;
+pub trait LocalQueue<const N: usize> {
+  type BufferCell;
 
-  fn auto_batch(task: Self::Task) {
-    StackQueue::<UnsafeCell<MaybeUninit<Self::Task>>, N>::auto_batch::<Self>(task);
-  }
+  fn queue() -> &'static LocalKey<StackQueue<Self::BufferCell, N>>;
 }
 
 pub(crate) struct Inner<T, const N: usize = 2048> {
@@ -71,7 +80,7 @@ pub(crate) struct Inner<T, const N: usize = 2048> {
   pub(crate) buffer: [T; N],
 }
 
-impl<T, const N: usize> Default for Inner<UnsafeCell<MaybeUninit<T>>, N> {
+impl<T, const N: usize> Default for Inner<BufferCell<T>, N> {
   fn default() -> Self {
     let buffer = array::from_fn(|_| UnsafeCell::new(MaybeUninit::uninit()));
 
@@ -101,7 +110,6 @@ where
 #[derive(Debug)]
 pub(crate) struct QueueFull;
 
-#[doc(hidden)]
 /// Task queue designed for facilitating heapless auto-batching of tasks
 pub struct StackQueue<T, const N: usize = 2048> {
   slot: CachePadded<UnsafeCell<usize>>,
@@ -369,9 +377,10 @@ impl<T, const N: usize> StackQueue<UnsafeCell<MaybeUninit<T>>, N> {
     }
   }
 
-  pub fn auto_batch<Q>(task: Q::Task)
+  fn background_process<Q>(task: Q::Task)
   where
-    Q: LocalSliceQueue<N>,
+    Q: SliceQueue,
+    Q: LocalQueue<N, BufferCell = BufferCell<Q::Task>>,
   {
     Q::queue().with(|queue| match queue.push::<Q>(task) {
       Ok(Some(assignment)) => {
@@ -423,22 +432,20 @@ impl<T, const N: usize> Drop for StackQueue<T, N> {
 mod test {
   use std::{thread, time::Duration};
 
-  use async_t::async_trait;
   #[cfg(not(loom))]
   use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
   use tokio::{sync::oneshot, task::yield_now};
 
   use crate::{
     assignment::{CompletionReceipt, PendingAssignment},
+    local_queue,
     slice::UnboundedSlice,
-    LocalQueue, LocalSliceQueue, SliceQueue, TaskQueue,
+    SliceQueue, TaskQueue,
   };
 
-  #[derive(LocalQueue)]
-  #[local_queue(buffer_size = 256)]
   struct EchoQueue;
 
-  #[async_trait]
+  #[local_queue]
   impl TaskQueue for EchoQueue {
     type Task = usize;
     type Value = usize;
@@ -469,10 +476,9 @@ mod test {
     }
   }
 
-  #[derive(LocalQueue)]
   struct SlowQueue;
 
-  #[async_trait]
+  #[local_queue]
   impl TaskQueue for SlowQueue {
     type Task = usize;
     type Value = usize;
@@ -505,10 +511,9 @@ mod test {
     handle.abort();
   }
 
-  #[derive(LocalQueue)]
   struct YieldQueue;
 
-  #[async_trait]
+  #[local_queue]
   impl TaskQueue for YieldQueue {
     type Task = usize;
     type Value = usize;
@@ -621,10 +626,9 @@ mod test {
     });
   }
 
-  #[derive(LocalSliceQueue)]
   struct EchoSliceQueue;
 
-  #[async_trait]
+  #[local_queue]
   impl SliceQueue for EchoSliceQueue {
     type Task = (usize, oneshot::Sender<usize>);
 
@@ -641,6 +645,7 @@ mod test {
   #[tokio::test(flavor = "multi_thread")]
 
   async fn it_process_background_tasks() {
+    #[allow(clippy::needless_collect)]
     let receivers: Vec<_> = (0..100_usize)
       .into_iter()
       .map(|i| {

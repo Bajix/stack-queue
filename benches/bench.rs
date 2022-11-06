@@ -5,22 +5,21 @@ use std::{
   time::{Duration, Instant},
 };
 
-use async_t::async_trait;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 use stack_queue::{
   assignment::{CompletionReceipt, PendingAssignment},
+  local_queue,
   slice::UnboundedSlice,
-  LocalQueue, LocalSliceQueue, SliceQueue, TaskQueue,
+  SliceQueue, TaskQueue,
 };
 use tokio::{runtime::Builder, sync::oneshot};
 
 #[global_allocator]
 static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
-#[derive(LocalQueue)]
 pub struct AssignmentTimeQueue;
 
-#[async_trait]
+#[local_queue]
 impl TaskQueue for AssignmentTimeQueue {
   type Task = ();
   type Value = Duration;
@@ -36,10 +35,9 @@ impl TaskQueue for AssignmentTimeQueue {
   }
 }
 
-#[derive(LocalQueue)]
 pub struct EnqueueTimeQueue;
 
-#[async_trait]
+#[local_queue]
 impl TaskQueue for EnqueueTimeQueue {
   type Task = Instant;
   type Value = Duration;
@@ -54,10 +52,9 @@ impl TaskQueue for EnqueueTimeQueue {
   }
 }
 
-#[derive(LocalQueue)]
 pub struct ReceiveTimeQueue;
 
-#[async_trait]
+#[local_queue]
 impl TaskQueue for ReceiveTimeQueue {
   type Task = ();
   type Value = Instant;
@@ -72,10 +69,9 @@ impl TaskQueue for ReceiveTimeQueue {
   }
 }
 
-#[derive(LocalSliceQueue)]
 pub struct SliceTimerQueue;
 
-#[async_trait]
+#[local_queue]
 impl SliceQueue for SliceTimerQueue {
   type Task = (Instant, oneshot::Sender<Duration>);
 

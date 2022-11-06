@@ -315,13 +315,14 @@ pub(crate) enum State<T: TaskQueue> {
 
 /// An automatically batched task
 #[pin_project(project = AutoBatchProj, PinnedDrop)]
-pub struct AutoBatchedTask<T: LocalQueue<N>, const N: usize = 2048> {
+pub struct AutoBatchedTask<T: TaskQueue, const N: usize = 2048> {
   pub(crate) state: State<T>,
 }
 
 impl<T, const N: usize> AutoBatchedTask<T, N>
 where
-  T: LocalQueue<N>,
+  T: TaskQueue,
+  T: LocalQueue<N, BufferCell = TaskRef<T>>,
 {
   /// Create a new auto batched task
   pub fn new(task: T::Task) -> Self {
@@ -333,7 +334,8 @@ where
 
 impl<T, const N: usize> Future for AutoBatchedTask<T, N>
 where
-  T: LocalQueue<N>,
+  T: TaskQueue,
+  T: LocalQueue<N, BufferCell = TaskRef<T>>,
 {
   type Output = T::Value;
 
@@ -395,7 +397,7 @@ where
 #[pinned_drop]
 impl<T, const N: usize> PinnedDrop for AutoBatchedTask<T, N>
 where
-  T: LocalQueue<N>,
+  T: TaskQueue,
 {
   fn drop(self: Pin<&mut Self>) {
     if let State::Batched(rx) = &self.state {

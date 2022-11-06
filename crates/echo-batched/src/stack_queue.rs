@@ -1,14 +1,12 @@
-use async_t::async_trait;
 use futures::future::join_all;
 use stack_queue::{
   assignment::{CompletionReceipt, PendingAssignment},
-  LocalQueue, TaskQueue,
+  local_queue, TaskQueue,
 };
 
-#[derive(LocalQueue)]
 struct EchoQueue;
 
-#[async_trait]
+#[local_queue]
 impl TaskQueue for EchoQueue {
   type Task = u64;
   type Value = u64;

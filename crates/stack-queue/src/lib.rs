@@ -6,6 +6,9 @@ extern crate self as stack_queue;
 pub extern crate static_assertions as sa;
 
 #[doc(hidden)]
+pub extern crate async_t;
+
+#[doc(hidden)]
 #[cfg(loom)]
 pub extern crate loom;
 
@@ -25,5 +28,5 @@ mod queue;
 pub mod slice;
 pub mod task;
 
-pub use derive_stack_queue::{LocalQueue, LocalSliceQueue};
-pub use queue::{LocalQueue, LocalSliceQueue, SliceQueue, StackQueue, TaskQueue};
+pub use derive_stack_queue::local_queue;
+pub use queue::{BufferCell, LocalQueue, SliceQueue, StackQueue, TaskQueue};
