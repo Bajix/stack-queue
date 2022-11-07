@@ -29,4 +29,4 @@ pub mod slice;
 pub mod task;
 
 pub use derive_stack_queue::local_queue;
-pub use queue::{BufferCell, LocalQueue, SliceQueue, StackQueue, TaskQueue};
+pub use queue::{BackgroundQueue, BufferCell, LocalQueue, StackQueue, TaskQueue};

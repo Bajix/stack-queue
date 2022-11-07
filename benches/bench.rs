@@ -10,7 +10,7 @@ use stack_queue::{
   assignment::{CompletionReceipt, PendingAssignment},
   local_queue,
   slice::UnboundedSlice,
-  SliceQueue, TaskQueue,
+  BackgroundQueue, TaskQueue,
 };
 use tokio::{runtime::Builder, sync::oneshot};
 
@@ -69,10 +69,10 @@ impl TaskQueue for ReceiveTimeQueue {
   }
 }
 
-pub struct SliceTimerQueue;
+pub struct BackgroundTimerQueue;
 
 #[local_queue]
-impl SliceQueue for SliceTimerQueue {
+impl BackgroundQueue for BackgroundTimerQueue {
   type Task = (Instant, oneshot::Sender<Duration>);
 
   async fn batch_process<const N: usize>(batch: UnboundedSlice<'async_trait, Self, N>) {
@@ -192,7 +192,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     );
 
     batching_benches.bench_with_input(
-      BenchmarkId::new("stack-queue::SliceQueue", batch_size),
+      BenchmarkId::new("stack-queue::BackgroundQueue", batch_size),
       &batch_size,
       |b, batch_size| {
         b.to_async(&rt).iter_custom(|iters| async move {
@@ -204,7 +204,7 @@ fn criterion_benchmark(c: &mut Criterion) {
               .map(|_| {
                 let (tx, rx) = oneshot::channel();
                 let enqueued_at = Instant::now();
-                SliceTimerQueue::auto_batch((enqueued_at, tx));
+                BackgroundTimerQueue::auto_batch((enqueued_at, tx));
                 rx
               })
               .collect();

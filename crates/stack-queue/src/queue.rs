@@ -53,7 +53,7 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
 }
 
 #[async_trait]
-pub trait SliceQueue: Send + Sync + Sized + 'static {
+pub trait BackgroundQueue: Send + Sync + Sized + 'static {
   type Task: Send;
 
   #[allow(clippy::needless_lifetimes)]
@@ -61,7 +61,7 @@ pub trait SliceQueue: Send + Sync + Sized + 'static {
 
   fn auto_batch<const N: usize>(task: Self::Task)
   where
-    Self: SliceQueue,
+    Self: BackgroundQueue,
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
   {
     StackQueue::<Self::BufferCell, N>::background_process::<Self>(task);
@@ -344,7 +344,7 @@ impl<T, const N: usize> StackQueue<UnsafeCell<MaybeUninit<T>>, N> {
 
   pub(crate) fn push<'a, Q>(&self, task: T) -> Result<Option<UnboundedSlice<'a, Q, N>>, T>
   where
-    Q: SliceQueue<Task = T>,
+    Q: BackgroundQueue<Task = T>,
   {
     let write_index = self.current_write_index();
 
@@ -379,7 +379,7 @@ impl<T, const N: usize> StackQueue<UnsafeCell<MaybeUninit<T>>, N> {
 
   fn background_process<Q>(task: Q::Task)
   where
-    Q: SliceQueue,
+    Q: BackgroundQueue,
     Q: LocalQueue<N, BufferCell = BufferCell<Q::Task>>,
   {
     Q::queue().with(|queue| match queue.push::<Q>(task) {
@@ -440,7 +440,7 @@ mod test {
     assignment::{CompletionReceipt, PendingAssignment},
     local_queue,
     slice::UnboundedSlice,
-    SliceQueue, TaskQueue,
+    BackgroundQueue, TaskQueue,
   };
 
   struct EchoQueue;
@@ -626,10 +626,10 @@ mod test {
     });
   }
 
-  struct EchoSliceQueue;
+  struct EchoBackgroundQueue;
 
   #[local_queue]
-  impl SliceQueue for EchoSliceQueue {
+  impl BackgroundQueue for EchoBackgroundQueue {
     type Task = (usize, oneshot::Sender<usize>);
 
     async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self, N>) {
@@ -650,7 +650,7 @@ mod test {
       .into_iter()
       .map(|i| {
         let (tx, rx) = oneshot::channel::<usize>();
-        EchoSliceQueue::auto_batch((i, tx));
+        EchoBackgroundQueue::auto_batch((i, tx));
         rx
       })
       .collect();

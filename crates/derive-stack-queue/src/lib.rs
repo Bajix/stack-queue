@@ -5,7 +5,7 @@ use syn::{parse::Error, parse_macro_input, AttributeArgs, ImplItem, ItemImpl};
 
 enum Variant {
   TaskQueue,
-  SliceQueue,
+  BackgroundQueue,
 }
 #[derive(FromMeta)]
 #[darling(default)]
@@ -19,7 +19,7 @@ impl Default for QueueOpt {
   }
 }
 
-/// derive LocalQueue from TaskQueue or SliceQueue impl
+/// derive LocalQueue from TaskQueue or BackgroundQueue impl
 #[proc_macro_attribute]
 pub fn local_queue(
   args: proc_macro::TokenStream,
@@ -55,8 +55,8 @@ pub fn local_queue(
       {
         ["stack_queue", "TaskQueue"] => Some(Variant::TaskQueue),
         ["TaskQueue"] => Some(Variant::TaskQueue),
-        ["stack_queue", "SliceQueue"] => Some(Variant::SliceQueue),
-        ["SliceQueue"] => Some(Variant::SliceQueue),
+        ["stack_queue", "BackgroundQueue"] => Some(Variant::BackgroundQueue),
+        ["BackgroundQueue"] => Some(Variant::BackgroundQueue),
         _ => None,
       }
     }
@@ -68,7 +68,7 @@ pub fn local_queue(
     None => {
       return Error::new(
         Span::call_site(),
-        "must be used on stack_queue::TaskQueue or stack_queue::SliceQueue",
+        "must be used on stack_queue::TaskQueue or stack_queue::BackgroundQueue",
       )
       .into_compile_error()
       .into();
@@ -98,7 +98,7 @@ pub fn local_queue(
 
   let buffer_cell = match variant {
     Variant::TaskQueue => quote!(stack_queue::task::TaskRef<#ident>),
-    Variant::SliceQueue => quote!(stack_queue::BufferCell<#task>),
+    Variant::BackgroundQueue => quote!(stack_queue::BufferCell<#task>),
   };
 
   let queue = quote!(stack_queue::StackQueue<#buffer_cell, #buffer_size>);

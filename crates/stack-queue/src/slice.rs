@@ -17,10 +17,10 @@ use loom::{
 
 use crate::{
   helpers::{active_phase_bit, one_shifted},
-  queue::{Inner, SliceQueue, INDEX_SHIFT},
+  queue::{BackgroundQueue, Inner, INDEX_SHIFT},
 };
 
-pub struct UnboundedSlice<'a, T: SliceQueue, const N: usize> {
+pub struct UnboundedSlice<'a, T: BackgroundQueue, const N: usize> {
   base_slot: usize,
   queue_ptr: *const Inner<UnsafeCell<MaybeUninit<T::Task>>, N>,
   _phantom: PhantomData<&'a ()>,
@@ -28,7 +28,7 @@ pub struct UnboundedSlice<'a, T: SliceQueue, const N: usize> {
 
 impl<'a, T, const N: usize> UnboundedSlice<'a, T, N>
 where
-  T: SliceQueue,
+  T: BackgroundQueue,
 {
   pub(crate) fn new(
     base_slot: usize,
@@ -85,7 +85,7 @@ where
 
 impl<'a, T, const N: usize> Drop for UnboundedSlice<'a, T, N>
 where
-  T: SliceQueue,
+  T: BackgroundQueue,
 {
   fn drop(&mut self) {
     let task_range = self.set_bounds();
@@ -99,16 +99,16 @@ where
 
 // This is safe because queue_ptr is guaranteed to be immovable and non-null while
 // references exist
-unsafe impl<'a, T, const N: usize> Send for UnboundedSlice<'a, T, N> where T: SliceQueue {}
+unsafe impl<'a, T, const N: usize> Send for UnboundedSlice<'a, T, N> where T: BackgroundQueue {}
 unsafe impl<'a, T, const N: usize> Sync for UnboundedSlice<'a, T, N>
 where
-  T: SliceQueue,
-  <T as SliceQueue>::Task: Sync,
+  T: BackgroundQueue,
+  <T as BackgroundQueue>::Task: Sync,
 {
 }
 
 // A guarded task range to a thread local queue.
-pub struct BoundedSlice<'a, T: SliceQueue, const N: usize> {
+pub struct BoundedSlice<'a, T: BackgroundQueue, const N: usize> {
   task_range: Range<usize>,
   queue_ptr: *const Inner<UnsafeCell<MaybeUninit<T::Task>>, N>,
   _phantom: PhantomData<&'a ()>,
@@ -116,7 +116,7 @@ pub struct BoundedSlice<'a, T: SliceQueue, const N: usize> {
 
 impl<'a, T, const N: usize> BoundedSlice<'a, T, N>
 where
-  T: SliceQueue,
+  T: BackgroundQueue,
 {
   fn new(
     task_range: Range<usize>,
@@ -165,7 +165,7 @@ where
 
 impl<'a, T, const N: usize> Deref for BoundedSlice<'a, T, N>
 where
-  T: SliceQueue,
+  T: BackgroundQueue,
 {
   type Target = [T::Task];
   fn deref(&self) -> &Self::Target {
@@ -175,7 +175,7 @@ where
 
 impl<'a, T, const N: usize> Drop for BoundedSlice<'a, T, N>
 where
-  T: SliceQueue,
+  T: BackgroundQueue,
 {
   fn drop(&mut self) {
     fence(Ordering::Release);
@@ -185,10 +185,10 @@ where
 
 // This is safe because queue_ptr is guaranteed to be immovable and non-null while
 // references exist
-unsafe impl<'a, T, const N: usize> Send for BoundedSlice<'a, T, N> where T: SliceQueue {}
+unsafe impl<'a, T, const N: usize> Send for BoundedSlice<'a, T, N> where T: BackgroundQueue {}
 unsafe impl<'a, T, const N: usize> Sync for BoundedSlice<'a, T, N>
 where
-  T: SliceQueue,
-  <T as SliceQueue>::Task: Sync,
+  T: BackgroundQueue,
+  <T as BackgroundQueue>::Task: Sync,
 {
 }
