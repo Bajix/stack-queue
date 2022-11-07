@@ -7,6 +7,7 @@ description = "Basic batching for perf comparison"
 readme = "../../README.md"
 license = "MIT"
 repository = "https://github.com/Bajix/stack-queue/"
+publish = false
 
 [dependencies]
 async_t = "0.7"
