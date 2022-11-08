@@ -107,6 +107,28 @@ where
   }
 }
 
+impl<T, const N: usize> Inner<BufferCell<T>, N> {
+  #[cfg(not(loom))]
+  #[inline(always)]
+  pub(crate) unsafe fn with_buffer_cell<F, R>(&self, f: F, index: usize) -> R
+  where
+    F: FnOnce(*mut MaybeUninit<T>) -> R,
+  {
+    let cell = self.buffer.get_unchecked(index);
+    f(cell.get())
+  }
+
+  #[cfg(loom)]
+  #[inline(always)]
+  pub(crate) unsafe fn with_buffer_cell<F, R>(&self, f: F, index: usize) -> R
+  where
+    F: FnOnce(*mut MaybeUninit<T>) -> R,
+  {
+    let cell = self.buffer.get_unchecked(index);
+    cell.get_mut().with(f)
+  }
+}
+
 #[derive(Debug)]
 pub(crate) struct QueueFull;
 
@@ -321,27 +343,7 @@ where
   }
 }
 
-impl<T, const N: usize> StackQueue<UnsafeCell<MaybeUninit<T>>, N> {
-  #[cfg(not(loom))]
-  #[inline(always)]
-  unsafe fn with_buffer_cell<F, R>(&self, f: F, index: usize) -> R
-  where
-    F: FnOnce(*mut MaybeUninit<T>) -> R,
-  {
-    let cell = self.inner.buffer.get_unchecked(index);
-    f(cell.get())
-  }
-
-  #[cfg(loom)]
-  #[inline(always)]
-  unsafe fn with_buffer_cell<F, R>(&self, f: F, index: usize) -> R
-  where
-    F: FnOnce(*mut MaybeUninit<T>) -> R,
-  {
-    let cell = self.inner.buffer.get_unchecked(index);
-    cell.get_mut().with(f)
-  }
-
+impl<T, const N: usize> StackQueue<BufferCell<T>, N> {
   pub(crate) fn push<'a, Q>(&self, task: T) -> Result<Option<UnboundedSlice<'a, Q, N>>, T>
   where
     Q: BackgroundQueue<Task = T>,
@@ -356,7 +358,9 @@ impl<T, const N: usize> StackQueue<UnsafeCell<MaybeUninit<T>>, N> {
     }
 
     unsafe {
-      self.with_buffer_cell(|cell| cell.write(MaybeUninit::new(task)), write_index);
+      self
+        .inner
+        .with_buffer_cell(|cell| cell.write(MaybeUninit::new(task)), write_index);
     }
 
     let base_slot = self

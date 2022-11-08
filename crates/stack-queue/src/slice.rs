@@ -1,28 +1,23 @@
 #[cfg(not(loom))]
-use std::{
-  cell::UnsafeCell,
-  sync::atomic::{fence, Ordering},
-};
+use std::sync::atomic::Ordering;
 use std::{
   marker::PhantomData,
-  mem::{self, MaybeUninit},
+  mem::{self},
   ops::{BitAnd, Deref, Range},
 };
 
 #[cfg(loom)]
-use loom::{
-  cell::UnsafeCell,
-  sync::atomic::{fence, Ordering},
-};
+use loom::sync::atomic::Ordering;
 
 use crate::{
   helpers::{active_phase_bit, one_shifted},
   queue::{BackgroundQueue, Inner, INDEX_SHIFT},
+  BufferCell,
 };
 
 pub struct UnboundedSlice<'a, T: BackgroundQueue, const N: usize> {
   base_slot: usize,
-  queue_ptr: *const Inner<UnsafeCell<MaybeUninit<T::Task>>, N>,
+  queue_ptr: *const Inner<BufferCell<T::Task>, N>,
   _phantom: PhantomData<&'a ()>,
 }
 
@@ -30,10 +25,7 @@ impl<'a, T, const N: usize> UnboundedSlice<'a, T, N>
 where
   T: BackgroundQueue,
 {
-  pub(crate) fn new(
-    base_slot: usize,
-    queue_ptr: *const Inner<UnsafeCell<MaybeUninit<T::Task>>, N>,
-  ) -> Self {
+  pub(crate) fn new(base_slot: usize, queue_ptr: *const Inner<BufferCell<T::Task>, N>) -> Self {
     UnboundedSlice {
       base_slot,
       queue_ptr,
@@ -42,7 +34,7 @@ where
   }
 
   #[inline(always)]
-  fn queue(&self) -> &Inner<UnsafeCell<MaybeUninit<T::Task>>, N> {
+  fn queue(&self) -> &Inner<BufferCell<T::Task>, N> {
     // This can be safely dereferenced because Inner is immovable by design and will suspend it's
     // thread termination as necessary until no references exist
     unsafe { &*self.queue_ptr }
@@ -110,7 +102,7 @@ where
 // A guarded task range to a thread local queue.
 pub struct BoundedSlice<'a, T: BackgroundQueue, const N: usize> {
   task_range: Range<usize>,
-  queue_ptr: *const Inner<UnsafeCell<MaybeUninit<T::Task>>, N>,
+  queue_ptr: *const Inner<BufferCell<T::Task>, N>,
   _phantom: PhantomData<&'a ()>,
 }
 
@@ -118,10 +110,7 @@ impl<'a, T, const N: usize> BoundedSlice<'a, T, N>
 where
   T: BackgroundQueue,
 {
-  fn new(
-    task_range: Range<usize>,
-    queue_ptr: *const Inner<UnsafeCell<MaybeUninit<T::Task>>, N>,
-  ) -> Self {
+  fn new(task_range: Range<usize>, queue_ptr: *const Inner<BufferCell<T::Task>, N>) -> Self {
     BoundedSlice {
       task_range,
       queue_ptr,
@@ -130,7 +119,7 @@ where
   }
 
   #[inline(always)]
-  fn queue(&self) -> &Inner<UnsafeCell<MaybeUninit<T::Task>>, N> {
+  fn queue(&self) -> &Inner<BufferCell<T::Task>, N> {
     // This can be safely dereferenced because Inner is immovable by design and will block it's
     // thread termination as necessary until no references exist
     unsafe { &*self.queue_ptr }
@@ -178,7 +167,6 @@ where
   T: BackgroundQueue,
 {
   fn drop(&mut self) {
-    fence(Ordering::Release);
     self.deoccupy_buffer();
   }
 }
@@ -191,4 +179,96 @@ where
   T: BackgroundQueue,
   <T as BackgroundQueue>::Task: Sync,
 {
+}
+
+pub struct TaskIter<'a, T: BackgroundQueue, const N: usize> {
+  current: Option<usize>,
+  task_range: Range<usize>,
+  queue_ptr: *const Inner<BufferCell<T::Task>, N>,
+  _phantom: PhantomData<&'a ()>,
+}
+
+impl<'a, T, const N: usize> TaskIter<'a, T, N>
+where
+  T: BackgroundQueue,
+{
+  #[inline(always)]
+  fn queue(&self) -> &Inner<BufferCell<T::Task>, N> {
+    // This can be safely dereferenced because Inner is immovable by design and will block it's
+    // thread termination as necessary until no references exist
+    unsafe { &*self.queue_ptr }
+  }
+
+  fn deoccupy_buffer(&self) {
+    self
+      .queue()
+      .occupancy
+      .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Relaxed);
+  }
+}
+
+impl<'a, T, const N: usize> Iterator for TaskIter<'a, T, N>
+where
+  T: BackgroundQueue,
+{
+  type Item = T::Task;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    if let Some(index) = self.current {
+      self.current = if self.task_range.end > index {
+        Some(index + 1)
+      } else {
+        None
+      };
+
+      let task = unsafe {
+        self
+          .queue()
+          .with_buffer_cell(|cell| (*cell).assume_init_read(), index)
+      };
+
+      Some(task)
+    } else {
+      None
+    }
+  }
+}
+
+unsafe impl<'a, T, const N: usize> Send for TaskIter<'a, T, N> where T: BackgroundQueue {}
+unsafe impl<'a, T, const N: usize> Sync for TaskIter<'a, T, N>
+where
+  T: BackgroundQueue,
+  <T as BackgroundQueue>::Task: Sync,
+{
+}
+
+impl<'a, T, const N: usize> Drop for TaskIter<'a, T, N>
+where
+  T: BackgroundQueue,
+{
+  fn drop(&mut self) {
+    while let Some(_) = self.next() {}
+    self.deoccupy_buffer();
+  }
+}
+
+impl<'a, T, const N: usize> IntoIterator for BoundedSlice<'a, T, N>
+where
+  T: BackgroundQueue,
+{
+  type Item = T::Task;
+  type IntoIter = TaskIter<'a, T, N>;
+
+  fn into_iter(self) -> Self::IntoIter {
+    let iter = TaskIter {
+      current: Some(self.task_range.start),
+      task_range: self.task_range.clone(),
+      queue_ptr: self.queue_ptr,
+      _phantom: PhantomData,
+    };
+
+    mem::forget(self);
+
+    iter
+  }
 }
