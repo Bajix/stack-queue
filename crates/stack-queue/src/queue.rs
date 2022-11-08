@@ -19,9 +19,8 @@ use tokio::runtime::Handle;
 use tokio::task::yield_now;
 
 use crate::{
-  assignment::{CompletionReceipt, PendingAssignment},
+  assignment::{CompletionReceipt, PendingAssignment, UnboundedSlice},
   helpers::*,
-  slice::UnboundedSlice,
   task::{AutoBatchedTask, Receiver, TaskRef},
   MAX_BUFFER_LEN, MIN_BUFFER_LEN,
 };
@@ -441,10 +440,8 @@ mod test {
   use tokio::{sync::oneshot, task::yield_now};
 
   use crate::{
-    assignment::{CompletionReceipt, PendingAssignment},
-    local_queue,
-    slice::UnboundedSlice,
-    BackgroundQueue, TaskQueue,
+    assignment::{CompletionReceipt, PendingAssignment, UnboundedSlice},
+    local_queue, BackgroundQueue, TaskQueue,
   };
 
   struct EchoQueue;

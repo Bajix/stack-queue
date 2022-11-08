@@ -7,10 +7,8 @@ use std::{
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 use stack_queue::{
-  assignment::{CompletionReceipt, PendingAssignment},
-  local_queue,
-  slice::UnboundedSlice,
-  BackgroundQueue, TaskQueue,
+  assignment::{CompletionReceipt, PendingAssignment, UnboundedSlice},
+  local_queue, BackgroundQueue, TaskQueue,
 };
 use tokio::{runtime::Builder, sync::oneshot};
 
