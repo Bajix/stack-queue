@@ -303,7 +303,6 @@ where
   }
 }
 
-// This is safe because state is guaranteed to be immovable and to exist
 unsafe impl<T> Send for Receiver<T> where T: TaskQueue {}
 
 #[pin_project(project = StateProj)]

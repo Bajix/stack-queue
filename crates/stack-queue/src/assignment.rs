@@ -81,8 +81,6 @@ where
   }
 }
 
-// This is safe because queue_ptr is guaranteed to be immovable and non-null while
-// references exist
 unsafe impl<'a, T, const N: usize> Send for PendingAssignment<'a, T, N> where T: TaskQueue {}
 unsafe impl<'a, T, const N: usize> Sync for PendingAssignment<'a, T, N>
 where
@@ -211,8 +209,6 @@ where
   }
 }
 
-// This is safe because queue_ptr is guaranteed to be immovable and non-null while
-// references exist
 unsafe impl<'a, T, const N: usize> Send for TaskAssignment<'a, T, N> where T: TaskQueue {}
 unsafe impl<'a, T, const N: usize> Sync for TaskAssignment<'a, T, N>
 where
@@ -303,8 +299,6 @@ where
   }
 }
 
-// This is safe because queue_ptr is guaranteed to be immovable and non-null while
-// references exist
 unsafe impl<'a, T, const N: usize> Send for AssignmentGuard<'a, T, N> where T: TaskQueue {}
 unsafe impl<'a, T, const N: usize> Sync for AssignmentGuard<'a, T, N>
 where
@@ -390,16 +384,25 @@ where
 {
   fn drop(&mut self) {
     let task_range = self.set_bounds();
+    let one_shifted = one_shifted::<N>(&task_range.start);
+
+    let queue = self.queue();
+
+    for index in task_range {
+      unsafe {
+        queue.with_buffer_cell(|cell| (*cell).assume_init_drop(), index);
+      }
+    }
+
+    fence(Ordering::Release);
 
     self
       .queue()
       .occupancy
-      .fetch_sub(one_shifted::<N>(&task_range.start), Ordering::Relaxed);
+      .fetch_sub(one_shifted, Ordering::Relaxed);
   }
 }
 
-// This is safe because queue_ptr is guaranteed to be immovable and non-null while
-// references exist
 unsafe impl<'a, T, const N: usize> Send for UnboundedSlice<'a, T, N> where T: BackgroundQueue {}
 unsafe impl<'a, T, const N: usize> Sync for UnboundedSlice<'a, T, N>
 where
@@ -450,6 +453,10 @@ where
       buffer.set_len(len);
     }
 
+    self.deoccupy_buffer();
+
+    mem::forget(self);
+
     buffer
   }
 
@@ -457,7 +464,7 @@ where
     self
       .queue()
       .occupancy
-      .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Relaxed);
+      .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Release);
   }
 }
 
@@ -476,12 +483,18 @@ where
   T: BackgroundQueue,
 {
   fn drop(&mut self) {
+    let queue = self.queue();
+
+    for index in self.task_range.clone() {
+      unsafe {
+        queue.with_buffer_cell(|cell| (*cell).assume_init_drop(), index);
+      }
+    }
+
     self.deoccupy_buffer();
   }
 }
 
-// This is safe because queue_ptr is guaranteed to be immovable and non-null while
-// references exist
 unsafe impl<'a, T, const N: usize> Send for BoundedSlice<'a, T, N> where T: BackgroundQueue {}
 unsafe impl<'a, T, const N: usize> Sync for BoundedSlice<'a, T, N>
 where
@@ -556,7 +569,7 @@ where
   T: BackgroundQueue,
 {
   fn drop(&mut self) {
-    while let Some(_) = self.next() {}
+    while self.next().is_some() {}
     self.deoccupy_buffer();
   }
 }
