@@ -3,6 +3,13 @@ use proc_macro2::Span;
 use quote::quote;
 use syn::{parse::Error, parse_macro_input, AttributeArgs, ImplItem, ItemImpl};
 
+const MIN_BUFFER_LEN: usize = 256;
+
+#[cfg(target_pointer_width = "64")]
+const MAX_BUFFER_LEN: usize = u32::MAX as usize;
+#[cfg(target_pointer_width = "32")]
+const MAX_BUFFER_LEN: usize = u16::MAX as usize;
+
 enum Variant {
   TaskQueue,
   BackgroundQueue,
@@ -38,6 +45,30 @@ pub fn local_queue(
       return err.write_errors().into();
     }
   };
+
+  if buffer_size > MAX_BUFFER_LEN {
+    return Error::new(
+      Span::call_site(),
+      format!("buffer_size must not exceed {}", MAX_BUFFER_LEN),
+    )
+    .into_compile_error()
+    .into();
+  }
+
+  if buffer_size < MIN_BUFFER_LEN {
+    return Error::new(
+      Span::call_site(),
+      format!("buffer_size must be at least {}", MIN_BUFFER_LEN),
+    )
+    .into_compile_error()
+    .into();
+  }
+
+  if buffer_size.ne(&buffer_size.next_power_of_two()) {
+    return Error::new(Span::call_site(), "buffer_size must be a power of 2")
+      .into_compile_error()
+      .into();
+  }
 
   let variant = match &input.trait_ {
     Some((_, path, _)) => {
@@ -90,7 +121,7 @@ pub fn local_queue(
   {
     Some(impl_type) => impl_type,
     None => {
-      return Error::new(Span::call_site(), "Task not defined")
+      return Error::new(Span::call_site(), "missing `Task` in implementation")
         .into_compile_error()
         .into();
     }
@@ -106,10 +137,6 @@ pub fn local_queue(
   let expanded = quote!(
     #[stack_queue::async_t::async_trait]
     #input
-
-    stack_queue::sa::const_assert!(#buffer_size >= stack_queue::MIN_BUFFER_LEN);
-    stack_queue::sa::const_assert!(#buffer_size <= stack_queue::MAX_BUFFER_LEN);
-    stack_queue::sa::const_assert_eq!(#buffer_size, #buffer_size.next_power_of_two());
 
     #[cfg(not(loom))]
     impl stack_queue::LocalQueue<#buffer_size> for #ident {

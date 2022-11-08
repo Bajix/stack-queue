@@ -3,9 +3,6 @@
 extern crate self as stack_queue;
 
 #[doc(hidden)]
-pub extern crate static_assertions as sa;
-
-#[doc(hidden)]
 pub extern crate async_t;
 
 #[doc(hidden)]

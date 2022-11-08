@@ -14,7 +14,6 @@ cache-padded = "1.2"
 derive-stack-queue = { version  = "0.0.1-beta.10", path = "../derive-stack-queue"}
 diesel = { version = "2", optional = true }
 pin-project = "1"
-static_assertions = "1.1.0"
 tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
