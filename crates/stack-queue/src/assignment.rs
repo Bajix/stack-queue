@@ -318,6 +318,7 @@ where
   }
 }
 
+/// Exclusive reference over an unbounded task range
 pub struct UnboundedSlice<'a, T: BackgroundQueue, const N: usize> {
   base_slot: usize,
   queue_ptr: *const Inner<BufferCell<T::Task>, N>,
@@ -411,7 +412,7 @@ where
 {
 }
 
-// A guarded task range to a thread local queue.
+/// Exclusive reference over a bounded task range
 pub struct BoundedSlice<'a, T: BackgroundQueue, const N: usize> {
   task_range: Range<usize>,
   queue_ptr: *const Inner<BufferCell<T::Task>, N>,
@@ -503,6 +504,7 @@ where
 {
 }
 
+/// An iterator over an exclusively referenced range of tasks
 pub struct TaskIter<'a, T: BackgroundQueue, const N: usize> {
   current: Option<usize>,
   task_range: Range<usize>,

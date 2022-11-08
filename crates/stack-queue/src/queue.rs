@@ -33,6 +33,7 @@ pub(crate) const INDEX_SHIFT: usize = 16;
 #[doc(hidden)]
 pub type BufferCell<T> = UnsafeCell<MaybeUninit<T>>;
 
+/// Auto-batched queue where tasks resolve to a value
 #[async_trait]
 pub trait TaskQueue: Send + Sync + Sized + 'static {
   type Task: Send;
@@ -51,6 +52,7 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
   }
 }
 
+/// Fire and forget auto-batched queue
 #[async_trait]
 pub trait BackgroundQueue: Send + Sync + Sized + 'static {
   type Task: Send;
@@ -67,6 +69,7 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
   }
 }
 
+/// Thread local context for enqueuing tasks to be batched
 pub trait LocalQueue<const N: usize> {
   type BufferCell;
 
