@@ -49,7 +49,7 @@ pub fn local_queue(
   if buffer_size > MAX_BUFFER_LEN {
     return Error::new(
       Span::call_site(),
-      format!("buffer_size must not exceed {}", MAX_BUFFER_LEN),
+      format!("buffer_size must not exceed {MAX_BUFFER_LEN}"),
     )
     .into_compile_error()
     .into();
@@ -58,7 +58,7 @@ pub fn local_queue(
   if buffer_size < MIN_BUFFER_LEN {
     return Error::new(
       Span::call_site(),
-      format!("buffer_size must be at least {}", MIN_BUFFER_LEN),
+      format!("buffer_size must be at least {MIN_BUFFER_LEN}"),
     )
     .into_compile_error()
     .into();

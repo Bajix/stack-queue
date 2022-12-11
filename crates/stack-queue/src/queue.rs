@@ -1,4 +1,4 @@
-use std::{array, fmt::Debug, mem::MaybeUninit, ops::BitAnd, ptr::addr_of};
+use std::{array, fmt::Debug, mem::MaybeUninit, ops::BitAnd};
 #[cfg(not(loom))]
 use std::{
   cell::UnsafeCell,
@@ -6,6 +6,7 @@ use std::{
   thread::LocalKey,
 };
 
+use async_local::{AsContext, AsyncLocal, Context};
 use async_t::async_trait;
 use cache_padded::CachePadded;
 #[cfg(loom)]
@@ -14,8 +15,6 @@ use loom::{
   sync::atomic::{AtomicUsize, Ordering},
   thread::LocalKey,
 };
-#[cfg(not(loom))]
-use tokio::runtime::Handle;
 use tokio::task::yield_now;
 
 use crate::{
@@ -131,14 +130,17 @@ impl<T, const N: usize> Inner<BufferCell<T>, N> {
   }
 }
 
+unsafe impl<T, const N: usize> Sync for Inner<T, N> {}
+
 #[derive(Debug)]
 pub(crate) struct QueueFull;
 
 /// Task queue designed for facilitating heapless auto-batching of tasks
+#[derive(AsContext)]
 pub struct StackQueue<T, const N: usize = 2048> {
   slot: CachePadded<UnsafeCell<usize>>,
   occupancy: CachePadded<UnsafeCell<usize>>,
-  inner: Inner<T, N>,
+  inner: Context<Inner<T, N>>,
 }
 
 impl<T, const N: usize> Default for StackQueue<T, N>
@@ -157,7 +159,7 @@ where
     StackQueue {
       slot: CachePadded::new(UnsafeCell::new(N << INDEX_SHIFT)),
       occupancy: CachePadded::new(UnsafeCell::new(0)),
-      inner: Inner::default(),
+      inner: Context::new(Inner::default()),
     }
   }
 }
@@ -313,6 +315,7 @@ where
     write_with: F,
   ) -> Result<Option<PendingAssignment<'a, T, N>>, QueueFull>
   where
+    T: LocalQueue<N, BufferCell = TaskRef<T>>,
     F: FnOnce(*const AtomicUsize) -> (T::Task, *const Receiver<T>),
   {
     let write_index = self.current_write_index();
@@ -338,9 +341,9 @@ where
     } else {
       self.occupy_region(&write_index);
 
-      let queue_ptr = addr_of!(self.inner);
+      let queue = unsafe { T::queue().guarded_ref() };
 
-      Ok(Some(PendingAssignment::new(base_slot, queue_ptr)))
+      Ok(Some(PendingAssignment::new(base_slot, queue)))
     }
   }
 }
@@ -348,7 +351,9 @@ where
 impl<T, const N: usize> StackQueue<BufferCell<T>, N> {
   pub(crate) fn push<'a, Q>(&self, task: T) -> Result<Option<UnboundedSlice<'a, Q, N>>, T>
   where
+    T: 'static,
     Q: BackgroundQueue<Task = T>,
+    Q: LocalQueue<N, BufferCell = BufferCell<Q::Task>>,
   {
     let write_index = self.current_write_index();
 
@@ -377,9 +382,9 @@ impl<T, const N: usize> StackQueue<BufferCell<T>, N> {
     } else {
       self.occupy_region(&write_index);
 
-      let queue_ptr = addr_of!(self.inner);
+      let queue = unsafe { Q::queue().guarded_ref() };
 
-      Ok(Some(UnboundedSlice::new(base_slot, queue_ptr)))
+      Ok(Some(UnboundedSlice::new(base_slot, queue)))
     }
   }
 
@@ -415,23 +420,6 @@ impl<T, const N: usize> StackQueue<BufferCell<T>, N> {
         });
       }
     });
-  }
-}
-
-// The purpose of this drop is to block deallocation to ensure the validity of references until
-// dropped as a way of sequencing shutdowns without introducing undefined behavior. While this
-// approach is not ideal, this is at worst an edge-case that can only happen after a shutdown signal
-// has occurred, and so this is given preference over other techniques that would come at a
-// continuous performance cost. This approach allows us to avoid the necessity for condvar / mutexes
-#[cfg(not(loom))]
-impl<T, const N: usize> Drop for StackQueue<T, N> {
-  fn drop(&mut self) {
-    while self.inner.occupancy.load(Ordering::Acquire).ne(&0) {
-      match Handle::try_current() {
-        Ok(handle) => handle.block_on(tokio::task::yield_now()),
-        Err(_) => break,
-      }
-    }
   }
 }
 #[cfg(all(test))]

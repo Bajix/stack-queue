@@ -2,7 +2,7 @@
 members = [
   "crates/derive-stack-queue",
   "crates/echo-batched",
-  "crates/stack-queue"
+  "crates/stack-queue",
 ]
 
 [profile.release]

@@ -6,6 +6,7 @@ use std::{
   ops::{BitAnd, Deref, Range},
 };
 
+use async_local::RefGuard;
 #[cfg(loom)]
 use loom::sync::atomic::{fence, Ordering};
 
@@ -19,33 +20,21 @@ use crate::{
 /// The responsibilty to process a yet to be assigned set of tasks on the queue.
 pub struct PendingAssignment<'a, T: TaskQueue, const N: usize> {
   base_slot: usize,
-  queue_ptr: *const Inner<TaskRef<T>, N>,
-  _phantom: PhantomData<&'a ()>,
+  queue: RefGuard<'a, Inner<TaskRef<T>, N>>,
 }
 
 impl<'a, T, const N: usize> PendingAssignment<'a, T, N>
 where
   T: TaskQueue,
 {
-  pub(crate) fn new(base_slot: usize, queue_ptr: *const Inner<TaskRef<T>, N>) -> Self {
-    PendingAssignment {
-      base_slot,
-      queue_ptr,
-      _phantom: PhantomData,
-    }
-  }
-
-  #[inline(always)]
-  fn queue(&self) -> &Inner<TaskRef<T>, N> {
-    // This can be safely dereferenced because Inner is immovable by design and will suspend it's
-    // thread termination as necessary until no references exist
-    unsafe { &*self.queue_ptr }
+  pub(crate) fn new(base_slot: usize, queue: RefGuard<'a, Inner<TaskRef<T>, N>>) -> Self {
+    PendingAssignment { base_slot, queue }
   }
 
   fn set_assignment_bounds(&self) -> Range<usize> {
     let phase_bit = active_phase_bit::<N>(&self.base_slot);
 
-    let end_slot = self.queue().slot.fetch_xor(phase_bit, Ordering::Relaxed);
+    let end_slot = self.queue.slot.fetch_xor(phase_bit, Ordering::Relaxed);
 
     // If the N bit has changed it means the queue has wrapped around the beginning
     if (N << INDEX_SHIFT).bitand(self.base_slot ^ end_slot).eq(&0) {
@@ -73,11 +62,11 @@ where
   /// larger batches. This operation is constant time and wait-free
   pub fn into_assignment(self) -> TaskAssignment<'a, T, N> {
     let task_range = self.set_assignment_bounds();
-    let queue_ptr = self.queue_ptr;
+    let queue = self.queue;
 
     mem::forget(self);
 
-    TaskAssignment::new(task_range, queue_ptr)
+    TaskAssignment::new(task_range, queue)
   }
 }
 
@@ -95,41 +84,29 @@ where
 {
   fn drop(&mut self) {
     let task_range = self.set_assignment_bounds();
-    let queue_ptr = self.queue_ptr;
+    let queue = self.queue;
 
-    TaskAssignment::new(task_range, queue_ptr);
+    TaskAssignment::new(task_range, queue);
   }
 }
 
 /// An assignment of a task range to be processed
 pub struct TaskAssignment<'a, T: TaskQueue, const N: usize> {
   task_range: Range<usize>,
-  queue_ptr: *const Inner<TaskRef<T>, N>,
-  _phantom: PhantomData<&'a ()>,
+  queue: RefGuard<'a, Inner<TaskRef<T>, N>>,
 }
 
 impl<'a, T, const N: usize> TaskAssignment<'a, T, N>
 where
   T: TaskQueue,
 {
-  fn new(task_range: Range<usize>, queue_ptr: *const Inner<TaskRef<T>, N>) -> Self {
-    TaskAssignment {
-      task_range,
-      queue_ptr,
-      _phantom: PhantomData,
-    }
-  }
-
-  #[inline(always)]
-  fn queue(&self) -> &Inner<TaskRef<T>, N> {
-    // This can be safely dereferenced because Inner is immovable by design and will block it's
-    // thread termination as necessary until no references exist
-    unsafe { &*self.queue_ptr }
+  fn new(task_range: Range<usize>, queue: RefGuard<'a, Inner<TaskRef<T>, N>>) -> Self {
+    TaskAssignment { task_range, queue }
   }
 
   /// A slice of the assigned task range
   pub fn tasks(&self) -> &[TaskRef<T>] {
-    unsafe { self.queue().buffer.get_unchecked(self.task_range.clone()) }
+    unsafe { self.queue.buffer.get_unchecked(self.task_range.clone()) }
   }
 
   /// Resolve task assignment with an iterator where indexes align with tasks
@@ -164,7 +141,7 @@ where
 
   fn deoccupy_buffer(&self) {
     self
-      .queue()
+      .queue
       .occupancy
       .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Relaxed);
   }
@@ -204,7 +181,6 @@ where
       .iter()
       .for_each(|task_ref| unsafe { drop(task_ref.take_task_unchecked()) });
 
-    fence(Ordering::Release);
     self.deoccupy_buffer();
   }
 }
@@ -219,8 +195,7 @@ where
 
 struct AssignmentGuard<'a, T: TaskQueue, const N: usize> {
   task_range: Range<usize>,
-  queue_ptr: *const Inner<TaskRef<T>, N>,
-  _phantom: PhantomData<&'a ()>,
+  queue: RefGuard<'a, Inner<TaskRef<T>, N>>,
 }
 
 impl<'a, T, const N: usize> AssignmentGuard<'a, T, N>
@@ -235,33 +210,22 @@ where
       .collect();
 
     let task_range = assignment.task_range.clone();
-    let queue_ptr = assignment.queue_ptr;
+    let queue = assignment.queue;
 
     mem::forget(assignment);
 
-    let guard = AssignmentGuard::new(task_range, queue_ptr);
+    let guard = AssignmentGuard::new(task_range, queue);
 
     (tasks, guard)
   }
 
-  fn new(task_range: Range<usize>, queue_ptr: *const Inner<TaskRef<T>, N>) -> Self {
-    AssignmentGuard {
-      task_range,
-      queue_ptr,
-      _phantom: PhantomData,
-    }
+  fn new(task_range: Range<usize>, queue: RefGuard<'a, Inner<TaskRef<T>, N>>) -> Self {
+    AssignmentGuard { task_range, queue }
   }
 
   /// A slice of the assigned task range
   fn tasks(&self) -> &[TaskRef<T>] {
-    unsafe { self.queue().buffer.get_unchecked(self.task_range.clone()) }
-  }
-
-  #[inline(always)]
-  fn queue(&self) -> &Inner<TaskRef<T>, N> {
-    // This can be safely dereferenced because Inner is immovable by design and will block it's
-    // thread termination as necessary until no references exist
-    unsafe { &*self.queue_ptr }
+    unsafe { self.queue.buffer.get_unchecked(self.task_range.clone()) }
   }
 
   /// Resolve task assignment with an iterator where indexes align with tasks
@@ -283,7 +247,7 @@ where
 
   fn deoccupy_buffer(&self) {
     self
-      .queue()
+      .queue
       .occupancy
       .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Relaxed);
   }
@@ -294,7 +258,6 @@ where
   T: TaskQueue,
 {
   fn drop(&mut self) {
-    fence(Ordering::Release);
     self.deoccupy_buffer();
   }
 }
@@ -321,33 +284,21 @@ where
 /// Exclusive reference over an unbounded task range
 pub struct UnboundedSlice<'a, T: BackgroundQueue, const N: usize> {
   base_slot: usize,
-  queue_ptr: *const Inner<BufferCell<T::Task>, N>,
-  _phantom: PhantomData<&'a ()>,
+  queue: RefGuard<'a, Inner<BufferCell<T::Task>, N>>,
 }
 
 impl<'a, T, const N: usize> UnboundedSlice<'a, T, N>
 where
   T: BackgroundQueue,
 {
-  pub(crate) fn new(base_slot: usize, queue_ptr: *const Inner<BufferCell<T::Task>, N>) -> Self {
-    UnboundedSlice {
-      base_slot,
-      queue_ptr,
-      _phantom: PhantomData,
-    }
-  }
-
-  #[inline(always)]
-  fn queue(&self) -> &Inner<BufferCell<T::Task>, N> {
-    // This can be safely dereferenced because Inner is immovable by design and will suspend it's
-    // thread termination as necessary until no references exist
-    unsafe { &*self.queue_ptr }
+  pub(crate) fn new(base_slot: usize, queue: RefGuard<'a, Inner<BufferCell<T::Task>, N>>) -> Self {
+    UnboundedSlice { base_slot, queue }
   }
 
   fn set_bounds(&self) -> Range<usize> {
     let phase_bit = active_phase_bit::<N>(&self.base_slot);
 
-    let end_slot = self.queue().slot.fetch_xor(phase_bit, Ordering::Relaxed);
+    let end_slot = self.queue.slot.fetch_xor(phase_bit, Ordering::Relaxed);
 
     // If the N bit has changed it means the queue has wrapped around the beginning
     if (N << INDEX_SHIFT).bitand(self.base_slot ^ end_slot).eq(&0) {
@@ -371,11 +322,11 @@ where
 
   pub fn into_bounded(self) -> BoundedSlice<'a, T, N> {
     let task_range = self.set_bounds();
-    let queue_ptr = self.queue_ptr;
+    let queue = self.queue;
 
     mem::forget(self);
 
-    BoundedSlice::new(task_range, queue_ptr)
+    BoundedSlice::new(task_range, queue)
   }
 }
 
@@ -387,7 +338,7 @@ where
     let task_range = self.set_bounds();
     let one_shifted = one_shifted::<N>(&task_range.start);
 
-    let queue = self.queue();
+    let queue = self.queue;
 
     for index in task_range {
       unsafe {
@@ -398,7 +349,7 @@ where
     fence(Ordering::Release);
 
     self
-      .queue()
+      .queue
       .occupancy
       .fetch_sub(one_shifted, Ordering::Relaxed);
   }
@@ -415,32 +366,20 @@ where
 /// Exclusive reference over a bounded task range
 pub struct BoundedSlice<'a, T: BackgroundQueue, const N: usize> {
   task_range: Range<usize>,
-  queue_ptr: *const Inner<BufferCell<T::Task>, N>,
-  _phantom: PhantomData<&'a ()>,
+  queue: RefGuard<'a, Inner<BufferCell<T::Task>, N>>,
 }
 
 impl<'a, T, const N: usize> BoundedSlice<'a, T, N>
 where
   T: BackgroundQueue,
 {
-  fn new(task_range: Range<usize>, queue_ptr: *const Inner<BufferCell<T::Task>, N>) -> Self {
-    BoundedSlice {
-      task_range,
-      queue_ptr,
-      _phantom: PhantomData,
-    }
-  }
-
-  #[inline(always)]
-  fn queue(&self) -> &Inner<BufferCell<T::Task>, N> {
-    // This can be safely dereferenced because Inner is immovable by design and will block it's
-    // thread termination as necessary until no references exist
-    unsafe { &*self.queue_ptr }
+  fn new(task_range: Range<usize>, queue: RefGuard<'a, Inner<BufferCell<T::Task>, N>>) -> Self {
+    BoundedSlice { task_range, queue }
   }
 
   /// A slice of the bounded task range
   pub fn tasks(&self) -> &[T::Task] {
-    unsafe { mem::transmute(self.queue().buffer.get_unchecked(self.task_range.clone())) }
+    unsafe { mem::transmute(self.queue.buffer.get_unchecked(self.task_range.clone())) }
   }
 
   pub fn to_vec(self) -> Vec<T::Task> {
@@ -463,7 +402,7 @@ where
 
   fn deoccupy_buffer(&self) {
     self
-      .queue()
+      .queue
       .occupancy
       .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Release);
   }
@@ -484,11 +423,11 @@ where
   T: BackgroundQueue,
 {
   fn drop(&mut self) {
-    let queue = self.queue();
-
     for index in self.task_range.clone() {
       unsafe {
-        queue.with_buffer_cell(|cell| (*cell).assume_init_drop(), index);
+        self
+          .queue
+          .with_buffer_cell(|cell| (*cell).assume_init_drop(), index);
       }
     }
 
@@ -508,24 +447,16 @@ where
 pub struct TaskIter<'a, T: BackgroundQueue, const N: usize> {
   current: Option<usize>,
   task_range: Range<usize>,
-  queue_ptr: *const Inner<BufferCell<T::Task>, N>,
-  _phantom: PhantomData<&'a ()>,
+  queue: RefGuard<'a, Inner<BufferCell<T::Task>, N>>,
 }
 
 impl<'a, T, const N: usize> TaskIter<'a, T, N>
 where
   T: BackgroundQueue,
 {
-  #[inline(always)]
-  fn queue(&self) -> &Inner<BufferCell<T::Task>, N> {
-    // This can be safely dereferenced because Inner is immovable by design and will block it's
-    // thread termination as necessary until no references exist
-    unsafe { &*self.queue_ptr }
-  }
-
   fn deoccupy_buffer(&self) {
     self
-      .queue()
+      .queue
       .occupancy
       .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Relaxed);
   }
@@ -547,7 +478,7 @@ where
 
       let task = unsafe {
         self
-          .queue()
+          .queue
           .with_buffer_cell(|cell| (*cell).assume_init_read(), index)
       };
 
@@ -587,8 +518,7 @@ where
     let iter = TaskIter {
       current: Some(self.task_range.start),
       task_range: self.task_range.clone(),
-      queue_ptr: self.queue_ptr,
-      _phantom: PhantomData,
+      queue: self.queue,
     };
 
     mem::forget(self);

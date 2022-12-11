@@ -2,7 +2,7 @@
 name = "derive-stack-queue"
 authors = ["Thomas Sieverding <Thomas@bajix.com>"]
 edition = "2021"
-version = "0.0.1-beta.12"
+version = "0.0.1-beta.13"
 description = "Derives for stack-queue"
 readme = "../../README.md"
 license = "MIT"
@@ -14,7 +14,7 @@ doctest = false
 proc-macro = true
 
 [dependencies]
-darling = "0.14.1"
+darling = "0.14"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "1", features = [] }
