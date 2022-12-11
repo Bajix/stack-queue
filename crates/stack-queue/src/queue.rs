@@ -75,7 +75,8 @@ pub trait LocalQueue<const N: usize> {
   fn queue() -> &'static LocalKey<StackQueue<Self::BufferCell, N>>;
 }
 
-pub(crate) struct Inner<T, const N: usize = 2048> {
+#[doc(hidden)]
+pub struct Inner<T, const N: usize = 2048> {
   pub(crate) slot: CachePadded<AtomicUsize>,
   pub(crate) occupancy: CachePadded<AtomicUsize>,
   pub(crate) buffer: [T; N],
