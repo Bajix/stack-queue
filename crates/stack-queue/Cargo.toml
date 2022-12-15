@@ -37,7 +37,7 @@ bench = false
 
 [features]
 default = []
-boxed = ["async_t/boxed"]
+boxed = ["async_t/boxed", "async-local/boxed"]
 diesel-associations = ["diesel"]
 
 [package.metadata.docs.rs]
