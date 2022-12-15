@@ -9,6 +9,7 @@ use std::{
 use async_local::RefGuard;
 #[cfg(loom)]
 use loom::sync::atomic::{fence, Ordering};
+use shutdown_barrier::defer_shutdown;
 
 use crate::{
   helpers::{active_phase_bit, one_shifted},
@@ -67,6 +68,21 @@ where
     mem::forget(self);
 
     TaskAssignment::new(task_range, queue)
+  }
+
+  /// Resolve task assignment within a thread where blocking is acceptable. Runtime shutdown will
+  /// suspend for the lifetime of this thread as to protect the underlying thread local data
+  pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
+  where
+    F: for<'b> FnOnce(PendingAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
+  {
+    let batch: PendingAssignment<'_, T, N> = unsafe { std::mem::transmute(self) };
+    tokio::task::spawn_blocking(move || {
+      defer_shutdown();
+      f(batch)
+    })
+    .await
+    .unwrap()
   }
 }
 

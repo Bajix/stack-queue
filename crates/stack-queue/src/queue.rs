@@ -479,13 +479,11 @@ mod test {
     async fn batch_process<const N: usize>(
       batch: PendingAssignment<'async_trait, Self, N>,
     ) -> CompletionReceipt<Self> {
-      let assignment = batch.into_assignment();
-
-      assignment
-        .resolve_blocking(|tasks| {
+      batch
+        .with_blocking(|batch| {
+          let assignment = batch.into_assignment();
           thread::sleep(Duration::from_millis(50));
-
-          tasks
+          assignment.map(|task| task)
         })
         .await
     }
