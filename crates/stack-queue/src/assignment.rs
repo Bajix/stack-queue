@@ -70,8 +70,9 @@ where
     TaskAssignment::new(task_range, queue)
   }
 
-  /// Resolve task assignment within a thread where blocking is acceptable. Runtime shutdown will
-  /// suspend for the lifetime of this thread as to protect the underlying thread local data
+  /// Resolve task assignment within a thread where blocking is acceptable. If the runtime would
+  /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
+  /// underlying thread local data from being destroyed
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
   where
     F: for<'b> FnOnce(PendingAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
@@ -170,20 +171,20 @@ where
     CompletionReceipt::new()
   }
 
-  /// Resolve task assignment within a thread where blocking is acceptable with an iterator where
-  /// indexes align with tasks
-  pub async fn resolve_blocking<F, R>(self, f: F) -> CompletionReceipt<T>
+  /// Resolve task assignment within a thread where blocking is acceptable. If the runtime would
+  /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
+  /// underlying thread local data from being destroyed
+  pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
   where
-    F: FnOnce(Vec<T::Task>) -> R + Send + 'static,
-    R: IntoIterator<Item = T::Value> + Send + 'static,
+    F: for<'b> FnOnce(TaskAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
   {
-    let (tasks, guard) = AssignmentGuard::from_assignment(self);
-
-    if let Ok(iter) = tokio::task::spawn_blocking(move || f(tasks)).await {
-      guard.resolve_with_iter(iter);
-    }
-
-    CompletionReceipt::new()
+    let batch: TaskAssignment<'_, T, N> = unsafe { std::mem::transmute(self) };
+    tokio::task::spawn_blocking(move || {
+      defer_shutdown();
+      f(batch)
+    })
+    .await
+    .unwrap()
   }
 }
 
@@ -209,82 +210,6 @@ where
 {
 }
 
-struct AssignmentGuard<'a, T: TaskQueue, const N: usize> {
-  task_range: Range<usize>,
-  queue: RefGuard<'a, Inner<TaskRef<T>, N>>,
-}
-
-impl<'a, T, const N: usize> AssignmentGuard<'a, T, N>
-where
-  T: TaskQueue,
-{
-  fn from_assignment(assignment: TaskAssignment<'a, T, N>) -> (Vec<T::Task>, Self) {
-    let tasks: Vec<T::Task> = assignment
-      .tasks()
-      .iter()
-      .map(|task_ref| unsafe { task_ref.take_task_unchecked() })
-      .collect();
-
-    let task_range = assignment.task_range.clone();
-    let queue = assignment.queue;
-
-    mem::forget(assignment);
-
-    let guard = AssignmentGuard::new(task_range, queue);
-
-    (tasks, guard)
-  }
-
-  fn new(task_range: Range<usize>, queue: RefGuard<'a, Inner<TaskRef<T>, N>>) -> Self {
-    AssignmentGuard { task_range, queue }
-  }
-
-  /// A slice of the assigned task range
-  fn tasks(&self) -> &[TaskRef<T>] {
-    unsafe { self.queue.buffer.get_unchecked(self.task_range.clone()) }
-  }
-
-  /// Resolve task assignment with an iterator where indexes align with tasks
-  fn resolve_with_iter<I>(self, iter: I)
-  where
-    I: IntoIterator<Item = T::Value>,
-  {
-    self
-      .tasks()
-      .iter()
-      .zip(iter)
-      .for_each(|(task_ref, value)| unsafe {
-        task_ref.resolve_unchecked(value);
-      });
-
-    self.deoccupy_buffer();
-    mem::forget(self);
-  }
-
-  fn deoccupy_buffer(&self) {
-    self
-      .queue
-      .occupancy
-      .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Relaxed);
-  }
-}
-
-impl<'a, T, const N: usize> Drop for AssignmentGuard<'a, T, N>
-where
-  T: TaskQueue,
-{
-  fn drop(&mut self) {
-    self.deoccupy_buffer();
-  }
-}
-
-unsafe impl<'a, T, const N: usize> Send for AssignmentGuard<'a, T, N> where T: TaskQueue {}
-unsafe impl<'a, T, const N: usize> Sync for AssignmentGuard<'a, T, N>
-where
-  T: TaskQueue,
-  <T as TaskQueue>::Task: Sync,
-{
-}
 /// A type-state proof of completion for a task assignment
 pub struct CompletionReceipt<T: TaskQueue>(PhantomData<T>);
 
