@@ -26,7 +26,7 @@ impl Default for QueueOpt {
   }
 }
 
-/// derive LocalQueue from TaskQueue or BackgroundQueue impl
+/// derive [LocalQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.LocalQueue.html) from [TaskQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.TaskQueue.html) or [BackgroundQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.BackgroundQueue.html) impl
 #[proc_macro_attribute]
 pub fn local_queue(
   args: proc_macro::TokenStream,
