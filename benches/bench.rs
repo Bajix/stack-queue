@@ -73,7 +73,7 @@ pub struct BackgroundTimerQueue;
 impl BackgroundQueue for BackgroundTimerQueue {
   type Task = (Instant, oneshot::Sender<Duration>);
 
-  async fn batch_process<const N: usize>(batch: UnboundedSlice<'async_trait, Self, N>) {
+  async fn batch_process<const N: usize>(batch: UnboundedSlice<'async_trait, Self::Task, N>) {
     let tasks = batch.into_bounded().to_vec();
     let collected_at = Instant::now();
 

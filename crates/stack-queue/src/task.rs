@@ -232,12 +232,8 @@ where
   }
 }
 
-unsafe impl<T> Sync for TaskRef<T>
-where
-  T: TaskQueue,
-  <T as TaskQueue>::Task: Sync,
-{
-}
+unsafe impl<T> Send for TaskRef<T> where T: TaskQueue {}
+unsafe impl<T> Sync for TaskRef<T> where T: TaskQueue {}
 
 #[cfg(feature = "diesel-associations")]
 impl<T, Parent> BelongsTo<Parent> for TaskRef<T>

@@ -1,4 +1,9 @@
-use std::{array, fmt::Debug, mem::MaybeUninit, ops::BitAnd};
+use std::{
+  array,
+  fmt::Debug,
+  mem::MaybeUninit,
+  ops::{BitAnd, Deref},
+};
 #[cfg(not(loom))]
 use std::{
   cell::UnsafeCell,
@@ -30,12 +35,34 @@ pub(crate) const INDEX_SHIFT: usize = 32;
 pub(crate) const INDEX_SHIFT: usize = 16;
 
 #[doc(hidden)]
-pub type BufferCell<T> = UnsafeCell<MaybeUninit<T>>;
+pub struct BufferCell<T: Send + Sync + Sized + 'static>(UnsafeCell<MaybeUninit<T>>);
+
+impl<T> Deref for BufferCell<T>
+where
+  T: Send + Sync + Sized + 'static,
+{
+  type Target = UnsafeCell<MaybeUninit<T>>;
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl<T> BufferCell<T>
+where
+  T: Send + Sync + Sized + 'static,
+{
+  fn new_uninit() -> Self {
+    BufferCell(UnsafeCell::new(MaybeUninit::uninit()))
+  }
+}
+
+unsafe impl<T> Send for BufferCell<T> where T: Send + Sync + Sized + 'static {}
+unsafe impl<T> Sync for BufferCell<T> where T: Send + Sync + Sized + 'static {}
 
 /// Auto-batched queue where tasks resolve to a value
 #[async_trait]
 pub trait TaskQueue: Send + Sync + Sized + 'static {
-  type Task: Send;
+  type Task: Send + Sync + Sized + 'static;
   type Value: Send;
 
   #[allow(clippy::needless_lifetimes)]
@@ -54,10 +81,10 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
 /// Fire and forget auto-batched queue
 #[async_trait]
 pub trait BackgroundQueue: Send + Sync + Sized + 'static {
-  type Task: Send;
+  type Task: Send + Sync + Sized + 'static;
 
   #[allow(clippy::needless_lifetimes)]
-  async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self, N>);
+  async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self::Task, N>);
 
   fn auto_batch<const N: usize>(task: Self::Task)
   where
@@ -69,21 +96,24 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
 
 /// Thread local context for enqueuing tasks to be batched
 pub trait LocalQueue<const N: usize> {
-  type BufferCell;
+  type BufferCell: Send + Sync + Sized + 'static;
 
   fn queue() -> &'static LocalKey<StackQueue<Self::BufferCell, N>>;
 }
 
 #[doc(hidden)]
-pub struct Inner<T, const N: usize = 2048> {
+pub struct Inner<T: Sync + Sized + 'static, const N: usize = 2048> {
   pub(crate) slot: CachePadded<AtomicUsize>,
   pub(crate) occupancy: CachePadded<AtomicUsize>,
   pub(crate) buffer: [T; N],
 }
 
-impl<T, const N: usize> Default for Inner<BufferCell<T>, N> {
+impl<T, const N: usize> Default for Inner<BufferCell<T>, N>
+where
+  T: Send + Sync + Sized + 'static,
+{
   fn default() -> Self {
-    let buffer = array::from_fn(|_| UnsafeCell::new(MaybeUninit::uninit()));
+    let buffer = array::from_fn(|_| BufferCell::new_uninit());
 
     Inner {
       slot: CachePadded::new(AtomicUsize::new(0)),
@@ -108,7 +138,10 @@ where
   }
 }
 
-impl<T, const N: usize> Inner<BufferCell<T>, N> {
+impl<T, const N: usize> Inner<BufferCell<T>, N>
+where
+  T: Send + Sync + Sized + 'static,
+{
   #[cfg(not(loom))]
   #[inline(always)]
   pub(crate) unsafe fn with_buffer_cell<F, R>(&self, f: F, index: usize) -> R
@@ -130,14 +163,14 @@ impl<T, const N: usize> Inner<BufferCell<T>, N> {
   }
 }
 
-unsafe impl<T, const N: usize> Sync for Inner<T, N> {}
+unsafe impl<T, const N: usize> Sync for Inner<T, N> where T: Sync + Sized + 'static {}
 
 #[derive(Debug)]
 pub(crate) struct QueueFull;
 
 /// Task queue designed for facilitating heapless auto-batching of tasks
 #[derive(AsContext)]
-pub struct StackQueue<T, const N: usize = 2048> {
+pub struct StackQueue<T: Sync + Sized + 'static, const N: usize = 2048> {
   slot: CachePadded<UnsafeCell<usize>>,
   occupancy: CachePadded<UnsafeCell<usize>>,
   inner: Context<Inner<T, N>>,
@@ -145,6 +178,7 @@ pub struct StackQueue<T, const N: usize = 2048> {
 
 impl<T, const N: usize> Default for StackQueue<T, N>
 where
+  T: Sync + Sized + 'static,
   Inner<T, N>: Default,
 {
   fn default() -> Self {
@@ -164,7 +198,10 @@ where
   }
 }
 
-impl<T, const N: usize> StackQueue<T, N> {
+impl<T, const N: usize> StackQueue<T, N>
+where
+  T: Sync + Sized + 'static,
+{
   #[cfg(not(loom))]
   #[inline(always)]
   unsafe fn with_slot<F, R>(&self, f: F) -> R
@@ -348,12 +385,13 @@ where
   }
 }
 
-impl<T, const N: usize> StackQueue<BufferCell<T>, N> {
-  pub(crate) fn push<'a, Q>(&self, task: T) -> Result<Option<UnboundedSlice<'a, Q, N>>, T>
+impl<T, const N: usize> StackQueue<BufferCell<T>, N>
+where
+  T: Send + Sync + Sized + 'static,
+{
+  pub(crate) fn push<'a, Q>(&self, task: T) -> Result<Option<UnboundedSlice<'a, T, N>>, T>
   where
-    T: 'static,
-    Q: BackgroundQueue<Task = T>,
-    Q: LocalQueue<N, BufferCell = BufferCell<Q::Task>>,
+    Q: LocalQueue<N, BufferCell = BufferCell<T>>,
   {
     let write_index = self.current_write_index();
 
@@ -388,10 +426,9 @@ impl<T, const N: usize> StackQueue<BufferCell<T>, N> {
     }
   }
 
-  fn background_process<Q>(task: Q::Task)
+  fn background_process<Q>(task: T)
   where
-    Q: BackgroundQueue,
-    Q: LocalQueue<N, BufferCell = BufferCell<Q::Task>>,
+    Q: BackgroundQueue<Task = T> + LocalQueue<N, BufferCell = BufferCell<T>>,
   {
     Q::queue().with(|queue| match queue.push::<Q>(task) {
       Ok(Some(assignment)) => {
@@ -622,7 +659,7 @@ mod test {
   impl BackgroundQueue for EchoBackgroundQueue {
     type Task = (usize, oneshot::Sender<usize>);
 
-    async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self, N>) {
+    async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self::Task, N>) {
       let tasks = tasks.into_bounded().to_vec();
 
       for (val, tx) in tasks.into_iter() {

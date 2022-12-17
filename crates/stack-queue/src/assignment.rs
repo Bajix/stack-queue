@@ -15,7 +15,7 @@ use crate::{
   helpers::{active_phase_bit, one_shifted},
   queue::{Inner, TaskQueue, INDEX_SHIFT},
   task::TaskRef,
-  BackgroundQueue, BufferCell,
+  BufferCell,
 };
 
 /// The responsibilty to process a yet to be assigned set of tasks on the queue.
@@ -70,7 +70,7 @@ where
     TaskAssignment::new(task_range, queue)
   }
 
-  /// Resolve task assignment within a thread where blocking is acceptable. If the runtime would
+  /// Move pending assignment to a thread where blocking is acceptable. If the runtime would
   /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
   /// underlying thread local data from being destroyed
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
@@ -88,12 +88,7 @@ where
 }
 
 unsafe impl<'a, T, const N: usize> Send for PendingAssignment<'a, T, N> where T: TaskQueue {}
-unsafe impl<'a, T, const N: usize> Sync for PendingAssignment<'a, T, N>
-where
-  T: TaskQueue,
-  <T as TaskQueue>::Task: Sync,
-{
-}
+unsafe impl<'a, T, const N: usize> Sync for PendingAssignment<'a, T, N> where T: TaskQueue {}
 
 impl<'a, T, const N: usize> Drop for PendingAssignment<'a, T, N>
 where
@@ -107,7 +102,7 @@ where
   }
 }
 
-/// An assignment of a task range to be processed
+/// Assignment of a task range to be processed
 pub struct TaskAssignment<'a, T: TaskQueue, const N: usize> {
   task_range: Range<usize>,
   queue: RefGuard<'a, Inner<TaskRef<T>, N>>,
@@ -171,7 +166,7 @@ where
     CompletionReceipt::new()
   }
 
-  /// Resolve task assignment within a thread where blocking is acceptable. If the runtime would
+  /// Move task assignment to a thread where blocking is acceptable. If the runtime would
   /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
   /// underlying thread local data from being destroyed
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
@@ -203,12 +198,7 @@ where
 }
 
 unsafe impl<'a, T, const N: usize> Send for TaskAssignment<'a, T, N> where T: TaskQueue {}
-unsafe impl<'a, T, const N: usize> Sync for TaskAssignment<'a, T, N>
-where
-  T: TaskQueue,
-  <T as TaskQueue>::Task: Sync,
-{
-}
+unsafe impl<'a, T, const N: usize> Sync for TaskAssignment<'a, T, N> where T: TaskQueue {}
 
 /// A type-state proof of completion for a task assignment
 pub struct CompletionReceipt<T: TaskQueue>(PhantomData<T>);
@@ -221,18 +211,17 @@ where
     CompletionReceipt(PhantomData)
   }
 }
-
-/// Exclusive reference over an unbounded task range
-pub struct UnboundedSlice<'a, T: BackgroundQueue, const N: usize> {
+/// A guard to exclusive access over an unbounded range of a buffer
+pub struct UnboundedSlice<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   base_slot: usize,
-  queue: RefGuard<'a, Inner<BufferCell<T::Task>, N>>,
+  queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
 }
 
 impl<'a, T, const N: usize> UnboundedSlice<'a, T, N>
 where
-  T: BackgroundQueue,
+  T: Send + Sync + Sized + 'static,
 {
-  pub(crate) fn new(base_slot: usize, queue: RefGuard<'a, Inner<BufferCell<T::Task>, N>>) -> Self {
+  pub(crate) fn new(base_slot: usize, queue: RefGuard<'a, Inner<BufferCell<T>, N>>) -> Self {
     UnboundedSlice { base_slot, queue }
   }
 
@@ -261,19 +250,20 @@ where
     }
   }
 
+  // Establish a range of exclusive access over a buffer
   pub fn into_bounded(self) -> BoundedSlice<'a, T, N> {
-    let task_range = self.set_bounds();
+    let range = self.set_bounds();
     let queue = self.queue;
 
     mem::forget(self);
 
-    BoundedSlice::new(task_range, queue)
+    BoundedSlice::new(range, queue)
   }
 }
 
 impl<'a, T, const N: usize> Drop for UnboundedSlice<'a, T, N>
 where
-  T: BackgroundQueue,
+  T: Send + Sync + Sized + 'static,
 {
   fn drop(&mut self) {
     let task_range = self.set_bounds();
@@ -296,41 +286,41 @@ where
   }
 }
 
-unsafe impl<'a, T, const N: usize> Send for UnboundedSlice<'a, T, N> where T: BackgroundQueue {}
-unsafe impl<'a, T, const N: usize> Sync for UnboundedSlice<'a, T, N>
-where
-  T: BackgroundQueue,
-  <T as BackgroundQueue>::Task: Sync,
+unsafe impl<'a, T, const N: usize> Send for UnboundedSlice<'a, T, N> where
+  T: Send + Sync + Sized + 'static
+{
+}
+unsafe impl<'a, T, const N: usize> Sync for UnboundedSlice<'a, T, N> where
+  T: Send + Sync + Sized + 'static
 {
 }
 
-/// Exclusive reference over a bounded task range
-pub struct BoundedSlice<'a, T: BackgroundQueue, const N: usize> {
-  task_range: Range<usize>,
-  queue: RefGuard<'a, Inner<BufferCell<T::Task>, N>>,
+/// A guard to exclusive access over a bounded range of a buffer
+pub struct BoundedSlice<'a, T: Send + Sync + Sized + 'static, const N: usize> {
+  range: Range<usize>,
+  queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
 }
 
 impl<'a, T, const N: usize> BoundedSlice<'a, T, N>
 where
-  T: BackgroundQueue,
+  T: Send + Sync + Sized + 'static,
 {
-  fn new(task_range: Range<usize>, queue: RefGuard<'a, Inner<BufferCell<T::Task>, N>>) -> Self {
-    BoundedSlice { task_range, queue }
+  fn new(range: Range<usize>, queue: RefGuard<'a, Inner<BufferCell<T>, N>>) -> Self {
+    BoundedSlice { range, queue }
   }
 
-  /// A slice of the bounded task range
-  pub fn tasks(&self) -> &[T::Task] {
-    unsafe { mem::transmute(self.queue.buffer.get_unchecked(self.task_range.clone())) }
+  pub fn as_slice(&self) -> &[T] {
+    unsafe { mem::transmute(self.queue.buffer.get_unchecked(self.range.clone())) }
   }
 
-  pub fn to_vec(self) -> Vec<T::Task> {
-    let tasks = self.tasks();
-    let len = tasks.len();
+  pub fn to_vec(self) -> Vec<T> {
+    let items = self.as_slice();
+    let len = items.len();
     let mut buffer = Vec::new();
     buffer.reserve_exact(len);
 
     unsafe {
-      std::ptr::copy_nonoverlapping(tasks.as_ptr(), buffer.as_mut_ptr(), len);
+      std::ptr::copy_nonoverlapping(items.as_ptr(), buffer.as_mut_ptr(), len);
       buffer.set_len(len);
     }
 
@@ -345,26 +335,26 @@ where
     self
       .queue
       .occupancy
-      .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Release);
+      .fetch_sub(one_shifted::<N>(&self.range.start), Ordering::Release);
   }
 }
 
 impl<'a, T, const N: usize> Deref for BoundedSlice<'a, T, N>
 where
-  T: BackgroundQueue,
+  T: Send + Sync + Sized + 'static,
 {
-  type Target = [T::Task];
+  type Target = [T];
   fn deref(&self) -> &Self::Target {
-    self.tasks()
+    self.as_slice()
   }
 }
 
 impl<'a, T, const N: usize> Drop for BoundedSlice<'a, T, N>
 where
-  T: BackgroundQueue,
+  T: Send + Sync + Sized + 'static,
 {
   fn drop(&mut self) {
-    for index in self.task_range.clone() {
+    for index in self.range.clone() {
       unsafe {
         self
           .queue
@@ -376,42 +366,43 @@ where
   }
 }
 
-unsafe impl<'a, T, const N: usize> Send for BoundedSlice<'a, T, N> where T: BackgroundQueue {}
-unsafe impl<'a, T, const N: usize> Sync for BoundedSlice<'a, T, N>
-where
-  T: BackgroundQueue,
-  <T as BackgroundQueue>::Task: Sync,
+unsafe impl<'a, T, const N: usize> Send for BoundedSlice<'a, T, N> where
+  T: Send + Sync + Sized + 'static
+{
+}
+unsafe impl<'a, T, const N: usize> Sync for BoundedSlice<'a, T, N> where
+  T: Send + Sync + Sized + 'static
 {
 }
 
-/// An iterator over an exclusively referenced range of tasks
-pub struct TaskIter<'a, T: BackgroundQueue, const N: usize> {
+/// An iterator over an owned range of a buffer
+pub struct BufferIter<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   current: Option<usize>,
-  task_range: Range<usize>,
-  queue: RefGuard<'a, Inner<BufferCell<T::Task>, N>>,
+  range: Range<usize>,
+  queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
 }
 
-impl<'a, T, const N: usize> TaskIter<'a, T, N>
+impl<'a, T, const N: usize> BufferIter<'a, T, N>
 where
-  T: BackgroundQueue,
+  T: Send + Sync + Sized + 'static,
 {
   fn deoccupy_buffer(&self) {
     self
       .queue
       .occupancy
-      .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Relaxed);
+      .fetch_sub(one_shifted::<N>(&self.range.start), Ordering::Relaxed);
   }
 }
 
-impl<'a, T, const N: usize> Iterator for TaskIter<'a, T, N>
+impl<'a, T, const N: usize> Iterator for BufferIter<'a, T, N>
 where
-  T: BackgroundQueue,
+  T: Send + Sync + Sized + 'static,
 {
-  type Item = T::Task;
+  type Item = T;
 
   fn next(&mut self) -> Option<Self::Item> {
     if let Some(index) = self.current {
-      self.current = if self.task_range.end > index {
+      self.current = if self.range.end > index {
         Some(index + 1)
       } else {
         None
@@ -430,17 +421,18 @@ where
   }
 }
 
-unsafe impl<'a, T, const N: usize> Send for TaskIter<'a, T, N> where T: BackgroundQueue {}
-unsafe impl<'a, T, const N: usize> Sync for TaskIter<'a, T, N>
-where
-  T: BackgroundQueue,
-  <T as BackgroundQueue>::Task: Sync,
+unsafe impl<'a, T, const N: usize> Send for BufferIter<'a, T, N> where
+  T: Send + Sync + Sized + 'static
+{
+}
+unsafe impl<'a, T, const N: usize> Sync for BufferIter<'a, T, N> where
+  T: Send + Sync + Sized + 'static
 {
 }
 
-impl<'a, T, const N: usize> Drop for TaskIter<'a, T, N>
+impl<'a, T, const N: usize> Drop for BufferIter<'a, T, N>
 where
-  T: BackgroundQueue,
+  T: Send + Sync + Sized + 'static,
 {
   fn drop(&mut self) {
     while self.next().is_some() {}
@@ -450,15 +442,15 @@ where
 
 impl<'a, T, const N: usize> IntoIterator for BoundedSlice<'a, T, N>
 where
-  T: BackgroundQueue,
+  T: Send + Sync + Sized + 'static,
 {
-  type Item = T::Task;
-  type IntoIter = TaskIter<'a, T, N>;
+  type Item = T;
+  type IntoIter = BufferIter<'a, T, N>;
 
   fn into_iter(self) -> Self::IntoIter {
-    let iter = TaskIter {
-      current: Some(self.task_range.start),
-      task_range: self.task_range.clone(),
+    let iter = BufferIter {
+      current: Some(self.range.start),
+      range: self.range.clone(),
       queue: self.queue,
     };
 
