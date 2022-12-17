@@ -61,7 +61,6 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
 
   fn auto_batch<const N: usize>(task: Self::Task)
   where
-    Self: BackgroundQueue,
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
   {
     StackQueue::<Self::BufferCell, N>::background_process::<Self>(task);
