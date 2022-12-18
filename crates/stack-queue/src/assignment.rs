@@ -70,7 +70,7 @@ where
     TaskAssignment::new(task_range, queue)
   }
 
-  /// Move pending assignment to a thread where blocking is acceptable. If the runtime would
+  /// Move [`PendingAssignment`] into a thread where blocking is acceptable. If the runtime would
   /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
   /// underlying thread local data from being destroyed
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
@@ -166,7 +166,7 @@ where
     CompletionReceipt::new()
   }
 
-  /// Move task assignment to a thread where blocking is acceptable. If the runtime would
+  /// Move [`TaskAssignment`] into a thread where blocking is acceptable. If the runtime would
   /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
   /// underlying thread local data from being destroyed
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
@@ -259,6 +259,23 @@ where
 
     BoundedSlice::new(range, queue)
   }
+
+  /// Move [`UnboundedSlice`] into a thread where blocking is acceptable. If the runtime would
+  /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
+  /// underlying thread local data from being destroyed
+  pub async fn with_blocking<F, R>(self, f: F) -> R
+  where
+    F: for<'b> FnOnce(UnboundedSlice<'b, T, N>) -> R + Send + 'static,
+    R: Send + 'static,
+  {
+    let batch: UnboundedSlice<'_, T, N> = unsafe { std::mem::transmute(self) };
+    tokio::task::spawn_blocking(move || {
+      defer_shutdown();
+      f(batch)
+    })
+    .await
+    .unwrap()
+  }
 }
 
 impl<'a, T, const N: usize> Drop for UnboundedSlice<'a, T, N>
@@ -329,6 +346,23 @@ where
     mem::forget(self);
 
     buffer
+  }
+
+  /// Move [`BoundedSlice`] into a thread where blocking is acceptable. If the runtime would
+  /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
+  /// underlying thread local data from being destroyed
+  pub async fn with_blocking<F, R>(self, f: F) -> R
+  where
+    F: for<'b> FnOnce(BoundedSlice<'b, T, N>) -> R + Send + 'static,
+    R: Send + 'static,
+  {
+    let batch: BoundedSlice<'_, T, N> = unsafe { std::mem::transmute(self) };
+    tokio::task::spawn_blocking(move || {
+      defer_shutdown();
+      f(batch)
+    })
+    .await
+    .unwrap()
   }
 
   fn deoccupy_buffer(&self) {
