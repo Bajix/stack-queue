@@ -13,6 +13,7 @@ const MAX_BUFFER_LEN: usize = u16::MAX as usize;
 enum Variant {
   TaskQueue,
   BackgroundQueue,
+  BatchReducer,
 }
 #[derive(FromMeta)]
 #[darling(default)]
@@ -26,7 +27,7 @@ impl Default for QueueOpt {
   }
 }
 
-/// derive [LocalQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.LocalQueue.html) from [TaskQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.TaskQueue.html) or [BackgroundQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.BackgroundQueue.html) impl
+/// derive [LocalQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.LocalQueue.html) from [TaskQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.TaskQueue.html), [BackgroundQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.BackgroundQueue.html) or [BatchReducer](https://docs.rs/stack-queue/latest/stack_queue/trait.BatchReducer.html) impl
 #[proc_macro_attribute]
 pub fn local_queue(
   args: proc_macro::TokenStream,
@@ -88,6 +89,8 @@ pub fn local_queue(
         ["TaskQueue"] => Some(Variant::TaskQueue),
         ["stack_queue", "BackgroundQueue"] => Some(Variant::BackgroundQueue),
         ["BackgroundQueue"] => Some(Variant::BackgroundQueue),
+        ["stack_queue", "BatchReducer"] => Some(Variant::BatchReducer),
+        ["BatchReducer"] => Some(Variant::BatchReducer),
         _ => None,
       }
     }
@@ -99,7 +102,7 @@ pub fn local_queue(
     None => {
       return Error::new(
         Span::call_site(),
-        "must be used on stack_queue::TaskQueue or stack_queue::BackgroundQueue",
+        "must be used on TaskQueue, BackgroundQueue or BatchReducer",
       )
       .into_compile_error()
       .into();
@@ -127,16 +130,50 @@ pub fn local_queue(
     }
   };
 
-  let buffer_cell = match variant {
+  let buffer_cell = match &variant {
     Variant::TaskQueue => quote!(stack_queue::task::TaskRef<#ident>),
     Variant::BackgroundQueue => quote!(stack_queue::BufferCell<#task>),
+    Variant::BatchReducer => quote!(stack_queue::BufferCell<#task>),
   };
 
   let queue = quote!(stack_queue::StackQueue<#buffer_cell, #buffer_size>);
 
+  let queue_impl = match &variant {
+    Variant::TaskQueue | Variant::BackgroundQueue => quote!(
+      #[stack_queue::async_t::async_trait]
+      #input
+    ),
+    Variant::BatchReducer => quote!(
+      #[stack_queue::async_t::async_trait]
+      impl stack_queue::BatchReducer for #ident {
+        type Task = #task;
+
+        async fn batch_reduce<const N: usize, F, R, Fut>(mut task: Self::Task, f: F) -> Option<R>
+        where
+          Self: stack_queue::LocalQueue<N, BufferCell = stack_queue::BufferCell<#task>>,
+          F: FnOnce(stack_queue::assignment::UnboundedSlice<'async_trait, #task, N>) -> Fut + Send,
+          Fut: std::future::Future<Output = R> + Send,
+        {
+          loop {
+            match <Self as stack_queue::LocalQueue<N>>::queue().with(|queue| unsafe { queue.push::<Self>(task) }) {
+              Ok(Some(batch)) => {
+                tokio::task::yield_now().await;
+                break Some(f(batch).await);
+              }
+              Ok(None) => break None,
+              Err(value) => {
+                task = value;
+                tokio::task::yield_now().await;
+              }
+            }
+          }
+        }
+      }
+    ),
+  };
+
   let expanded = quote!(
-    #[stack_queue::async_t::async_trait]
-    #input
+    #queue_impl
 
     #[cfg(not(loom))]
     impl stack_queue::LocalQueue<#buffer_size> for #ident {

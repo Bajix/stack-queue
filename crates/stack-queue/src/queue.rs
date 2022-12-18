@@ -1,6 +1,7 @@
 use std::{
   array,
   fmt::Debug,
+  future::Future,
   mem::MaybeUninit,
   ops::{BitAnd, Deref},
 };
@@ -90,8 +91,21 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
   {
-    StackQueue::<Self::BufferCell, N>::background_process::<Self>(task);
+    StackQueue::background_process::<Self>(task);
   }
+}
+
+/// Auto-batched queue where batches are reduced by a closure
+#[async_trait]
+pub trait BatchReducer: Send + Sync + Sized + 'static {
+  type Task: Send + Sync + Sized + 'static;
+
+  /// Enqueue and auto-batch task, using reducer fn once per batch. The [`local_queue`](https://docs.rs/stack-queue/latest/stack_queue/attr.local_queue.html) macro will impl batch_reduce
+  async fn batch_reduce<const N: usize, F, R, Fut>(task: Self::Task, f: F) -> Option<R>
+  where
+    Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
+    F: FnOnce(UnboundedSlice<'async_trait, Self::Task, N>) -> Fut + Send,
+    Fut: Future<Output = R> + Send;
 }
 
 /// Thread local context for enqueuing tasks to be batched
@@ -389,7 +403,8 @@ impl<T, const N: usize> StackQueue<BufferCell<T>, N>
 where
   T: Send + Sync + Sized + 'static,
 {
-  pub(crate) fn push<'a, Q>(&self, task: T) -> Result<Option<UnboundedSlice<'a, T, N>>, T>
+  #[doc(hidden)]
+  pub unsafe fn push<'a, Q>(&self, task: T) -> Result<Option<UnboundedSlice<'a, T, N>>, T>
   where
     Q: LocalQueue<N, BufferCell = BufferCell<T>>,
   {
@@ -430,7 +445,7 @@ where
   where
     Q: BackgroundQueue<Task = T> + LocalQueue<N, BufferCell = BufferCell<T>>,
   {
-    Q::queue().with(|queue| match queue.push::<Q>(task) {
+    Q::queue().with(|queue| match unsafe { queue.push::<Q>(task) } {
       Ok(Some(assignment)) => {
         tokio::task::spawn(async move {
           Q::batch_process::<N>(assignment).await;
@@ -440,7 +455,7 @@ where
       Err(mut task) => {
         tokio::task::spawn(async move {
           loop {
-            task = match Q::queue().with(|queue| queue.push::<Q>(task)) {
+            task = match Q::queue().with(|queue| unsafe { queue.push::<Q>(task) }) {
               Ok(Some(assignment)) => {
                 Q::batch_process::<N>(assignment).await;
                 return;
@@ -685,5 +700,34 @@ mod test {
     for (i, rx) in receivers.into_iter().enumerate() {
       assert_eq!(rx.await, Ok(i));
     }
+  }
+
+  #[cfg(not(loom))]
+  #[tokio::test(flavor = "multi_thread")]
+  async fn it_batch_reduces() {
+    use crate::BatchReducer;
+
+    struct MultiSetter;
+
+    #[local_queue]
+    impl BatchReducer for MultiSetter {
+      type Task = usize;
+    }
+
+    let tasks: FuturesUnordered<_> = (0..10000)
+      .map(|i| {
+        MultiSetter::batch_reduce(i, |slice| async move {
+          slice.into_bounded().iter().sum::<usize>()
+        })
+      })
+      .collect();
+
+    let total = tasks
+      .fold(0_usize, |total, value| async move {
+        total + value.unwrap_or_default()
+      })
+      .await;
+
+    assert_eq!(total, (0..10000).into_iter().sum());
   }
 }
