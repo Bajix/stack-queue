@@ -23,7 +23,7 @@ struct QueueOpt {
 
 impl Default for QueueOpt {
   fn default() -> Self {
-    QueueOpt { buffer_size: 2048 }
+    QueueOpt { buffer_size: 512 }
   }
 }
 

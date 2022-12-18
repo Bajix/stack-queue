@@ -116,7 +116,7 @@ pub trait LocalQueue<const N: usize> {
 }
 
 #[doc(hidden)]
-pub struct Inner<T: Sync + Sized + 'static, const N: usize = 2048> {
+pub struct Inner<T: Sync + Sized + 'static, const N: usize = 512> {
   pub(crate) slot: CachePadded<AtomicUsize>,
   pub(crate) occupancy: CachePadded<AtomicUsize>,
   pub(crate) buffer: [T; N],
@@ -184,7 +184,7 @@ pub(crate) struct QueueFull;
 
 /// Task queue designed for facilitating heapless auto-batching of tasks
 #[derive(AsContext)]
-pub struct StackQueue<T: Sync + Sized + 'static, const N: usize = 2048> {
+pub struct StackQueue<T: Sync + Sized + 'static, const N: usize = 512> {
   slot: CachePadded<UnsafeCell<usize>>,
   occupancy: CachePadded<UnsafeCell<usize>>,
   inner: Context<Inner<T, N>>,
