@@ -2,7 +2,7 @@
 name = "derive-stack-queue"
 authors = ["Thomas Sieverding <Thomas@bajix.com>"]
 edition = "2021"
-version = "0.0.1-beta.16"
+version = "0.0.1-beta.17"
 description = "Derives for stack-queue"
 readme = "../../README.md"
 license = "MIT"
@@ -18,3 +18,12 @@ darling = "0.14"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "1", features = [] }
+
+[features]
+tokio-runtime = []
+async-std-runtime = []
+
+[package.metadata.docs.rs]
+features = ["tokio-runtime"]
+all-features = false
+rustdoc-args = ["--cfg", "docsrs"]

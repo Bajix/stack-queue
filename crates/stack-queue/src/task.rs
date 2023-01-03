@@ -17,6 +17,8 @@ use std::{
   task::{Context, Poll, Waker},
 };
 
+#[cfg(feature = "async-std-runtime")]
+use async_std::task::spawn;
 #[cfg(feature = "diesel-associations")]
 use diesel::associations::BelongsTo;
 #[cfg(loom)]
@@ -27,6 +29,8 @@ use loom::{
   thread::yield_now,
 };
 use pin_project::{pin_project, pinned_drop};
+#[cfg(feature = "tokio-runtime")]
+use tokio::task::spawn;
 
 use crate::queue::{LocalQueue, QueueFull, TaskQueue};
 
@@ -364,7 +368,7 @@ where
           })
         }) {
           Ok(Ok(Some(assignment))) => {
-            tokio::task::spawn(async move {
+            spawn(async move {
               T::batch_process::<N>(assignment).await;
             });
           }

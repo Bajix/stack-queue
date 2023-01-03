@@ -7,9 +7,12 @@ use std::{
 };
 
 use async_local::RefGuard;
+#[cfg(feature = "async-std-runtime")]
+use async_std::task::JoinHandle;
 #[cfg(loom)]
 use loom::sync::atomic::{fence, Ordering};
-use shutdown_barrier::defer_shutdown;
+#[cfg(feature = "tokio-runtime")]
+use tokio::task::JoinHandle;
 
 use crate::{
   helpers::{active_phase_bit, one_shifted},
@@ -73,17 +76,22 @@ where
   /// Move [`PendingAssignment`] into a thread where blocking is acceptable. If the runtime would
   /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
   /// underlying thread local data from being destroyed
+  #[cfg(feature = "tokio-runtime")]
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
   where
     F: for<'b> FnOnce(PendingAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
   {
     let batch: PendingAssignment<'_, T, N> = unsafe { std::mem::transmute(self) };
-    tokio::task::spawn_blocking(move || {
-      defer_shutdown();
-      f(batch)
-    })
-    .await
-    .unwrap()
+    batch.queue.with_blocking(move |_| f(batch)).await.unwrap()
+  }
+
+  #[cfg(feature = "async-std-runtime")]
+  pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
+  where
+    F: for<'b> FnOnce(PendingAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
+  {
+    let batch: PendingAssignment<'_, T, N> = unsafe { std::mem::transmute(self) };
+    batch.queue.with_blocking(move |_| f(batch)).await
   }
 }
 
@@ -169,17 +177,22 @@ where
   /// Move [`TaskAssignment`] into a thread where blocking is acceptable. If the runtime would
   /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
   /// underlying thread local data from being destroyed
+  #[cfg(feature = "tokio-runtime")]
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
   where
     F: for<'b> FnOnce(TaskAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
   {
     let batch: TaskAssignment<'_, T, N> = unsafe { std::mem::transmute(self) };
-    tokio::task::spawn_blocking(move || {
-      defer_shutdown();
-      f(batch)
-    })
-    .await
-    .unwrap()
+    batch.queue.with_blocking(move |_| f(batch)).await.unwrap()
+  }
+
+  #[cfg(feature = "async-std-runtime")]
+  pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
+  where
+    F: for<'b> FnOnce(TaskAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
+  {
+    let batch: TaskAssignment<'_, T, N> = unsafe { std::mem::transmute(self) };
+    batch.queue.with_blocking(move |_| f(batch)).await
   }
 }
 
@@ -263,18 +276,13 @@ where
   /// Move [`UnboundedSlice`] into a thread where blocking is acceptable. If the runtime would
   /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
   /// underlying thread local data from being destroyed
-  pub async fn with_blocking<F, R>(self, f: F) -> R
+  pub fn with_blocking<F, R>(self, f: F) -> JoinHandle<R>
   where
     F: for<'b> FnOnce(UnboundedSlice<'b, T, N>) -> R + Send + 'static,
     R: Send + 'static,
   {
     let batch: UnboundedSlice<'_, T, N> = unsafe { std::mem::transmute(self) };
-    tokio::task::spawn_blocking(move || {
-      defer_shutdown();
-      f(batch)
-    })
-    .await
-    .unwrap()
+    batch.queue.with_blocking(move |_| f(batch))
   }
 }
 
@@ -351,18 +359,13 @@ where
   /// Move [`BoundedSlice`] into a thread where blocking is acceptable. If the runtime would
   /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
   /// underlying thread local data from being destroyed
-  pub async fn with_blocking<F, R>(self, f: F) -> R
+  pub fn with_blocking<F, R>(self, f: F) -> JoinHandle<R>
   where
     F: for<'b> FnOnce(BoundedSlice<'b, T, N>) -> R + Send + 'static,
     R: Send + 'static,
   {
     let batch: BoundedSlice<'_, T, N> = unsafe { std::mem::transmute(self) };
-    tokio::task::spawn_blocking(move || {
-      defer_shutdown();
-      f(batch)
-    })
-    .await
-    .unwrap()
+    batch.queue.with_blocking(move |_| f(batch))
   }
 
   fn deoccupy_buffer(&self) {

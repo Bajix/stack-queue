@@ -10,7 +10,6 @@ tasks:
   default:
     cmds:
       - task: clippy-tests
-      - task: clippy-loom
       - task: test-address-sanitizer
       - task: test-loom
 
@@ -33,7 +32,7 @@ tasks:
 
   test-miri:
     cmds:
-      - cargo miri test -Z build-std --target $TARGET -- --nocapture
+      - cargo miri test -Z build-std --target $TARGET --features tokio-runtime -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     env:
@@ -41,21 +40,13 @@ tasks:
 
   clippy-tests:
     cmds:
-      - cargo clippy --tests
+      - cargo clippy --tests --features tokio-runtime
     sources:
       - crates/stack-queue/**/*.rs
-
-  clippy-loom:
-    cmds:
-      - cargo clippy --tests
-    sources:
-      - crates/stack-queue/**/*.rs
-    env:
-      RUSTFLAGS: --cfg loom
 
   check-tests:
     cmds:
-      - cargo check --tests
+      - cargo check --tests --features tokio-runtime
     sources:
       - crates/stack-queue/**/*.rs
 
@@ -66,6 +57,10 @@ tasks:
       - crates/stack-queue/**/*.rs
     env:
       RUSTFLAGS: --cfg loom
+
+  test-async-std:
+    cmds:
+      - cargo test -p stack-queue --no-default-features --features async-std-runtime -- --nocapture
 
   test-loom:
     cmds:
@@ -84,7 +79,7 @@ tasks:
 
   test-address-sanitizer:
     cmds:
-      - cargo test -Z build-std --target $TARGET -- --nocapture
+      - cargo test -Z build-std --target $TARGET --features tokio-runtime -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     ev:
@@ -92,7 +87,7 @@ tasks:
 
   test-thread-sanitizer:
     cmds:
-      - cargo test -Z build-std --target $TARGET -- --nocapture
+      - cargo test -Z build-std --target $TARGET --features tokio-runtime -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     env:
@@ -100,7 +95,7 @@ tasks:
 
   test-leak-sanitizer:
     cmds:
-      - cargo test -Z build-std --target $TARGET -- --nocapture
+      - cargo test -Z build-std --target $TARGET --features tokio-runtime -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     env:

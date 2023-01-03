@@ -13,6 +13,8 @@ use std::{
 };
 
 use async_local::{AsContext, AsyncLocal, Context};
+#[cfg(feature = "async-std-runtime")]
+use async_std::task::{spawn, yield_now};
 use async_t::async_trait;
 use cache_padded::CachePadded;
 #[cfg(loom)]
@@ -21,7 +23,8 @@ use loom::{
   sync::atomic::{AtomicUsize, Ordering},
   thread::LocalKey,
 };
-use tokio::task::yield_now;
+#[cfg(feature = "tokio-runtime")]
+use tokio::task::{spawn, yield_now};
 
 use crate::{
   assignment::{CompletionReceipt, PendingAssignment, UnboundedSlice},
@@ -447,13 +450,13 @@ where
   {
     Q::queue().with(|queue| match unsafe { queue.push::<Q>(task) } {
       Ok(Some(assignment)) => {
-        tokio::task::spawn(async move {
+        spawn(async move {
           Q::batch_process::<N>(assignment).await;
         });
       }
       Ok(None) => {}
       Err(mut task) => {
-        tokio::task::spawn(async move {
+        spawn(async move {
           loop {
             task = match Q::queue().with(|queue| unsafe { queue.push::<Q>(task) }) {
               Ok(Some(assignment)) => {
@@ -474,18 +477,30 @@ where
     });
   }
 }
-#[cfg(all(test))]
+#[cfg(all(
+  test,
+  any(loom, feature = "tokio-runtime", feature = "async-std-runtime")
+))]
 mod test {
+  #[cfg(not(loom))]
   use std::{thread, time::Duration};
 
+  #[cfg(feature = "async-std-runtime")]
+  use async_std::task::yield_now;
   #[cfg(not(loom))]
   use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
-  use tokio::{sync::oneshot, task::yield_now};
+  #[cfg(all(not(loom), feature = "tokio-runtime"))]
+  use tokio::{
+    sync::{oneshot, Barrier},
+    task::{spawn, yield_now},
+  };
 
   use crate::{
-    assignment::{CompletionReceipt, PendingAssignment, UnboundedSlice},
-    local_queue, BackgroundQueue, TaskQueue,
+    assignment::{CompletionReceipt, PendingAssignment},
+    local_queue, TaskQueue,
   };
+  #[cfg(all(not(loom), feature = "tokio-runtime"))]
+  use crate::{queue::UnboundedSlice, BackgroundQueue};
 
   struct EchoQueue;
 
@@ -497,13 +512,13 @@ mod test {
     async fn batch_process<const N: usize>(
       batch: PendingAssignment<'async_trait, Self, N>,
     ) -> CompletionReceipt<Self> {
-      yield_now().await;
       batch.into_assignment().map(|val| val)
     }
   }
 
   #[cfg(not(loom))]
-  #[tokio::test(flavor = "multi_thread")]
+  #[cfg_attr(feature = "tokio-runtime", tokio::test(flavor = "multi_thread"))]
+  #[cfg_attr(feature = "async-std-runtime", async_std::test)]
 
   async fn it_process_tasks() {
     let batch: Vec<usize> = join_all((0..100).map(EchoQueue::auto_batch)).await;
@@ -512,7 +527,8 @@ mod test {
   }
 
   #[cfg(not(loom))]
-  #[tokio::test(flavor = "multi_thread")]
+  #[cfg_attr(feature = "tokio-runtime", tokio::test(flavor = "multi_thread"))]
+  #[cfg_attr(feature = "async-std-runtime", async_std::test)]
 
   async fn it_cycles() {
     for i in 0..512 {
@@ -520,8 +536,10 @@ mod test {
     }
   }
 
+  #[cfg(not(loom))]
   struct SlowQueue;
 
+  #[cfg(not(loom))]
   #[local_queue]
   impl TaskQueue for SlowQueue {
     type Task = usize;
@@ -540,11 +558,10 @@ mod test {
     }
   }
 
-  #[cfg(not(loom))]
-  #[tokio::test(flavor = "multi_thread")]
-
+  #[cfg(all(not(loom), any(feature = "tokio-runtime")))]
+  #[cfg_attr(feature = "tokio-runtime", tokio::test(flavor = "multi_thread"))]
   async fn it_has_drop_safety() {
-    let handle = tokio::task::spawn(async {
+    let handle = spawn(async {
       SlowQueue::auto_batch(0).await;
     });
 
@@ -553,8 +570,10 @@ mod test {
     handle.abort();
   }
 
+  #[cfg(not(loom))]
   struct YieldQueue;
 
+  #[cfg(not(loom))]
   #[local_queue]
   impl TaskQueue for YieldQueue {
     type Task = usize;
@@ -571,13 +590,11 @@ mod test {
     }
   }
 
-  #[cfg(not(loom))]
-  #[tokio::test(flavor = "multi_thread")]
+  #[cfg(all(not(loom), any(feature = "tokio-runtime")))]
+  #[cfg_attr(feature = "tokio-runtime", tokio::test(flavor = "multi_thread"))]
 
   async fn it_negotiates_receiver_drop() {
     use std::sync::Arc;
-
-    use tokio::sync::Barrier;
 
     let tasks: FuturesUnordered<_> = (0..256)
       .map(|i| async move {
@@ -668,8 +685,10 @@ mod test {
     });
   }
 
+  #[cfg(all(not(loom), any(feature = "tokio-runtime")))]
   struct EchoBackgroundQueue;
 
+  #[cfg(all(not(loom), any(feature = "tokio-runtime")))]
   #[local_queue]
   impl BackgroundQueue for EchoBackgroundQueue {
     type Task = (usize, oneshot::Sender<usize>);
@@ -683,13 +702,12 @@ mod test {
     }
   }
 
-  #[cfg(not(loom))]
-  #[tokio::test(flavor = "multi_thread")]
+  #[cfg(all(not(loom), any(feature = "tokio-runtime")))]
+  #[cfg_attr(feature = "tokio-runtime", tokio::test(flavor = "multi_thread"))]
 
   async fn it_process_background_tasks() {
     #[allow(clippy::needless_collect)]
     let receivers: Vec<_> = (0..100_usize)
-      .into_iter()
       .map(|i| {
         let (tx, rx) = oneshot::channel::<usize>();
         EchoBackgroundQueue::auto_batch((i, tx));
@@ -703,7 +721,8 @@ mod test {
   }
 
   #[cfg(not(loom))]
-  #[tokio::test(flavor = "multi_thread")]
+  #[cfg_attr(feature = "tokio-runtime", tokio::test(flavor = "multi_thread"))]
+  #[cfg_attr(feature = "async-std-runtime", async_std::test)]
   async fn it_batch_reduces() {
     use crate::BatchReducer;
 
@@ -728,6 +747,6 @@ mod test {
       })
       .await;
 
-    assert_eq!(total, (0..10000).into_iter().sum());
+    assert_eq!(total, (0..10000).sum());
   }
 }
