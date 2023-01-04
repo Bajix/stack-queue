@@ -18,15 +18,12 @@ pub extern crate loom;
 
 use static_assertions::assert_cfg;
 
-#[doc(hidden)]
-pub const MIN_BUFFER_LEN: usize = 256;
+const MIN_BUFFER_LEN: usize = 256;
 
-#[doc(hidden)]
 #[cfg(target_pointer_width = "64")]
-pub const MAX_BUFFER_LEN: usize = u32::MAX as usize;
-#[doc(hidden)]
+const MAX_BUFFER_LEN: usize = u32::MAX as usize;
 #[cfg(target_pointer_width = "32")]
-pub const MAX_BUFFER_LEN: usize = u16::MAX as usize;
+const MAX_BUFFER_LEN: usize = u16::MAX as usize;
 
 pub mod assignment;
 mod helpers;
