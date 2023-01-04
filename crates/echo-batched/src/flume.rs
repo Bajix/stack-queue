@@ -10,7 +10,6 @@ fn make_reactor() -> Sender<(u64, oneshot::Sender<u64>)> {
       if let Ok(task) = rx.recv_async().await {
         std::iter::once(task)
           .chain(std::iter::from_fn(|| rx.try_recv().ok()))
-          .into_iter()
           .for_each(|(i, tx)| {
             tx.send(i).ok();
           });

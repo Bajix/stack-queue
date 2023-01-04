@@ -198,7 +198,6 @@ fn criterion_benchmark(c: &mut Criterion) {
 
           for _ in 0..iters {
             let receivers: Vec<_> = (0..*batch_size)
-              .into_iter()
               .map(|_| {
                 let (tx, rx) = oneshot::channel();
                 let enqueued_at = Instant::now();
