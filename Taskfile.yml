@@ -15,7 +15,9 @@ tasks:
 
   doc:
     cmds:
-      - cargo doc -p stack-queue --open
+      - cargo +nightly doc -p stack-queue --open
+    env:
+      RUSTDOCFLAGS: --cfg docsrs
 
   bench:
     env:
