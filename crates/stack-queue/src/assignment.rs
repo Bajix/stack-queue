@@ -21,7 +21,7 @@ use crate::{
   BufferCell,
 };
 
-/// The responsibilty to process a yet to be assigned set of tasks on the queue.
+/// The responsibilty to process a yet to be assigned set of tasks.
 pub struct PendingAssignment<'a, T: TaskQueue, const N: usize> {
   base_slot: usize,
   queue: RefGuard<'a, Inner<TaskRef<T>, N>>,
@@ -73,9 +73,7 @@ where
     TaskAssignment::new(task_range, queue)
   }
 
-  /// Move [`PendingAssignment`] into a thread where blocking is acceptable. If the runtime would
-  /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
-  /// underlying thread local data from being destroyed
+  /// Move [`PendingAssignment`] into a thread where blocking is acceptable.
   #[cfg(feature = "tokio-runtime")]
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
   where
@@ -85,6 +83,7 @@ where
     batch.queue.with_blocking(move |_| f(batch)).await.unwrap()
   }
 
+  /// Move [`PendingAssignment`] into a thread where blocking is acceptable.
   #[cfg(feature = "async-std-runtime")]
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
   where
@@ -110,7 +109,7 @@ where
   }
 }
 
-/// Assignment of a task range to be processed
+/// Assignment of a task range yet to be processed
 pub struct TaskAssignment<'a, T: TaskQueue, const N: usize> {
   task_range: Range<usize>,
   queue: RefGuard<'a, Inner<TaskRef<T>, N>>,
@@ -174,9 +173,7 @@ where
     CompletionReceipt::new()
   }
 
-  /// Move [`TaskAssignment`] into a thread where blocking is acceptable. If the runtime would
-  /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
-  /// underlying thread local data from being destroyed
+  /// Move [`TaskAssignment`] into a thread where blocking is acceptable
   #[cfg(feature = "tokio-runtime")]
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
   where
@@ -186,6 +183,7 @@ where
     batch.queue.with_blocking(move |_| f(batch)).await.unwrap()
   }
 
+  /// Move [`TaskAssignment`] into a thread where blocking is acceptable
   #[cfg(feature = "async-std-runtime")]
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
   where
@@ -224,7 +222,7 @@ where
     CompletionReceipt(PhantomData)
   }
 }
-/// A guard to exclusive access over an unbounded range of a buffer
+/// A guard granting exclusive access over an unbounded range of a buffer
 pub struct UnboundedSlice<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   base_slot: usize,
   queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
@@ -273,9 +271,7 @@ where
     BoundedSlice::new(range, queue)
   }
 
-  /// Move [`UnboundedSlice`] into a thread where blocking is acceptable. If the runtime would
-  /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
-  /// underlying thread local data from being destroyed
+  /// Move [`UnboundedSlice`] into a thread where blocking is acceptable.
   pub fn with_blocking<F, R>(self, f: F) -> JoinHandle<R>
   where
     F: for<'b> FnOnce(UnboundedSlice<'b, T, N>) -> R + Send + 'static,
@@ -320,7 +316,7 @@ unsafe impl<'a, T, const N: usize> Sync for UnboundedSlice<'a, T, N> where
 {
 }
 
-/// A guard to exclusive access over a bounded range of a buffer
+/// A guard granting exclusive access over a bounded range of a buffer
 pub struct BoundedSlice<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   range: Range<usize>,
   queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
@@ -356,9 +352,7 @@ where
     buffer
   }
 
-  /// Move [`BoundedSlice`] into a thread where blocking is acceptable. If the runtime would
-  /// otherwise shutdown, instead it will suspend for the lifetime of this thread as to protect the
-  /// underlying thread local data from being destroyed
+  /// Move [`BoundedSlice`] into a thread where blocking is acceptable.
   pub fn with_blocking<F, R>(self, f: F) -> JoinHandle<R>
   where
     F: for<'b> FnOnce(BoundedSlice<'b, T, N>) -> R + Send + 'static,

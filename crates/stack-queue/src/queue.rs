@@ -63,7 +63,7 @@ where
 unsafe impl<T> Send for BufferCell<T> where T: Send + Sync + Sized + 'static {}
 unsafe impl<T> Sync for BufferCell<T> where T: Send + Sync + Sized + 'static {}
 
-/// Auto-batched queue where tasks resolve to a value
+/// Auto-batched queue whereby each task resolves to a value
 #[async_trait]
 pub trait TaskQueue: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
@@ -103,7 +103,7 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
 pub trait BatchReducer: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
 
-  /// Enqueue and auto-batch task, using reducer fn once per batch. The [`local_queue`](https://docs.rs/stack-queue/latest/stack_queue/attr.local_queue.html) macro will impl batch_reduce
+  /// Enqueue and auto-batch task, using reducer fn once per batch. The [`local_queue`](https://docs.rs/stack-queue/latest/stack_queue/attr.local_queue.html) macro will implement batch_reduce
   async fn batch_reduce<const N: usize, F, R, Fut>(task: Self::Task, f: F) -> Option<R>
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
@@ -111,7 +111,7 @@ pub trait BatchReducer: Send + Sync + Sized + 'static {
     Fut: Future<Output = R> + Send;
 }
 
-/// Thread local context for enqueuing tasks to be batched
+/// Thread local context for enqueuing tasks on a [`StackQueue`]
 pub trait LocalQueue<const N: usize> {
   type BufferCell: Send + Sync + Sized + 'static;
 

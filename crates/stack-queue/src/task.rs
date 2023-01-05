@@ -38,7 +38,7 @@ pub(crate) const SETTING_VALUE: usize = 1 << 0;
 pub(crate) const VALUE_SET: usize = 1 << 1;
 pub(crate) const RECEIVER_DROPPED: usize = 1 << 2;
 
-/// A raw pointer backed reference to the pinned receiver of an enqueued [`AutoBatchedTask`]
+/// A pointer to the pinned receiver of an enqueued [`AutoBatchedTask`]
 pub struct TaskRef<T: TaskQueue> {
   state: UnsafeCell<AtomicUsize>,
   rx: UnsafeCell<MaybeUninit<*const Receiver<T>>>,
