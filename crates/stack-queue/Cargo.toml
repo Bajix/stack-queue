@@ -38,6 +38,7 @@ bench = false
 [features]
 default = ["tokio-runtime"]
 boxed = ["async_t/boxed", "async-local/boxed"]
+# Implement [BelongsTo](https://docs.rs/diesel/2/diesel/associations/trait.BelongsTo.html) for [TaskRef<T>](https://docs.rs/stack-queue/latest/stack_queue/task/struct.TaskRef.html)
 diesel-associations = ["diesel"]
 tokio-runtime = [
   "tokio",
