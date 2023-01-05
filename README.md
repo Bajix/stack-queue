@@ -14,3 +14,7 @@ By utilizing a barrier to guard thread local data until runtime threads rendezvo
 | `1.74 us` (✅ **1.00x**) | `2.01 us` (❌ *1.16x slower*)   | `974.99 ns` (✅ **1.78x faster**)  | `644.55 ns` (🚀 **2.69x faster**)        | `1.96 us` (❌ *1.13x slower*)    |
 
 ---
+
+## Stable Usage
+
+This crate conditionally makes use of the nightly only feature [type_alias_impl_trait](https://rust-lang.github.io/rfcs/2515-type_alias_impl_trait.html) to allow async fns in traits to be unboxed. To compile on `stable` the `boxed` feature flag can be used to downgrade [async_t::async_trait](https://docs.rs/async_t/latest/async_t/attr.async_trait.html) to [async_trait::async_trait](https://docs.rs/async-trait/latest/async_trait).
