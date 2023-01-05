@@ -98,7 +98,7 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
   }
 }
 
-/// Auto-batched queue where batches are reduced by a closure
+/// Auto-batched queue whereby batches are reduced by a closure
 #[async_trait]
 pub trait BatchReducer: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
