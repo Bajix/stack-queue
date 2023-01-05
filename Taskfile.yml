@@ -25,6 +25,20 @@ tasks:
     cmds:
       - cargo bench --profile release
 
+  bench-slim:
+    env:
+      RUSTFLAGS: "-C target-cpu=native"
+      FILTER: Batching/(?:crossbeam|stack-queue::TaskQueue|stack-queue::BackgroundQueue)/16
+    cmds:
+      - cargo bench --profile release -- $FILTER
+
+  generate-bench-table:
+    env:
+      RUSTFLAGS: "-C target-cpu=native"
+      FILTER: Batching/(?:crossbeam|flume|stack-queue::TaskQueue|stack-queue::BackgroundQueue|tokio::mpsc)/16
+    cmds:
+      - cargo criterion --message-format=json -- $FILTER | criterion-table
+
   flamegraph:
     env:
       RUSTFLAGS: "-C target-cpu=native"
