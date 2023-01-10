@@ -2,7 +2,7 @@
 authors = ["Thomas Sieverding <Thomas@bajix.com>"]
 edition = "2021"
 name = "stack-queue"
-version = "0.1.0"
+version = "0.2.0"
 description = "Heapless auto-batching queue"
 readme = "../../README.md"
 license = "MIT"
@@ -13,7 +13,7 @@ async_t = "0.7"
 async-local = "0.11"
 async-std = { version = "1", features = ["attributes"], optional = true }
 cache-padded = "1.2"
-derive-stack-queue = { version = "0.1.0", path = "../derive-stack-queue" }
+derive-stack-queue = { version = "0.2.0", path = "../derive-stack-queue" }
 diesel = { version = "2", optional = true }
 pin-project = "1"
 static_assertions = "1.1"
