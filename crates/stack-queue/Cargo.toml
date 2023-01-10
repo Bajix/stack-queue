@@ -10,7 +10,7 @@ repository = "https://github.com/Bajix/stack-queue/"
 
 [dependencies]
 async_t = "0.7"
-async-local = "0.8"
+async-local = "0.11"
 async-std = { version = "1", features = ["attributes"], optional = true }
 cache-padded = "1.2"
 derive-stack-queue = { version = "0.1.0", path = "../derive-stack-queue" }
