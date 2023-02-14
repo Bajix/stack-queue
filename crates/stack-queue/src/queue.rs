@@ -4,6 +4,7 @@ use std::{
   future::Future,
   mem::MaybeUninit,
   ops::{BitAnd, Deref},
+  pin::Pin,
 };
 #[cfg(not(loom))]
 use std::{
@@ -101,11 +102,13 @@ pub trait BatchReducer: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
 
   /// Enqueue and auto-batch task, using reducer fn once per batch. The [`local_queue`](https://docs.rs/stack-queue/latest/stack_queue/attr.local_queue.html) macro will implement batch_reduce
-  async fn batch_reduce<const N: usize, F, R, Fut>(task: Self::Task, f: F) -> Option<R>
+  async fn batch_reduce<const N: usize, F, R>(task: Self::Task, f: F) -> Option<R>
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
-    F: FnOnce(UnboundedSlice<'async_trait, Self::Task, N>) -> Fut + Send,
-    Fut: Future<Output = R> + Send;
+    F: for<'a> FnOnce(
+        UnboundedSlice<'a, Self::Task, N>,
+      ) -> Pin<Box<dyn Future<Output = R> + Send + 'a>>
+      + Send;
 }
 
 /// Thread local context for enqueuing tasks on a [`StackQueue`]
@@ -726,8 +729,8 @@ mod test {
 
     let tasks: FuturesUnordered<_> = (0..10000)
       .map(|i| {
-        MultiSetter::batch_reduce(i, |slice| async move {
-          slice.into_bounded().iter().sum::<usize>()
+        MultiSetter::batch_reduce(i, |slice| {
+          Box::pin(async move { slice.into_bounded().iter().sum::<usize>() })
         })
       })
       .collect();
