@@ -1,12 +1,5 @@
 #![cfg_attr(not(feature = "boxed"), feature(type_alias_impl_trait))]
 
-assert_cfg!(all(
-  not(all(
-    feature = "tokio-runtime",
-    feature = "async-std-runtime"
-  )),
-  any(feature = "tokio-runtime", feature = "async-std-runtime",)
-));
 extern crate self as stack_queue;
 
 #[doc(hidden)]
@@ -15,8 +8,6 @@ pub extern crate async_t;
 #[doc(hidden)]
 #[cfg(loom)]
 pub extern crate loom;
-
-use static_assertions::assert_cfg;
 
 const MIN_BUFFER_LEN: usize = 256;
 

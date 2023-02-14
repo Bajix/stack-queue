@@ -7,11 +7,8 @@ use std::{
 };
 
 use async_local::RefGuard;
-#[cfg(feature = "async-std-runtime")]
-use async_std::task::{spawn_blocking, JoinHandle};
 #[cfg(loom)]
 use loom::sync::atomic::{fence, Ordering};
-#[cfg(feature = "tokio-runtime")]
 use tokio::task::{spawn_blocking, JoinHandle};
 
 use crate::{
@@ -74,23 +71,12 @@ where
   }
 
   /// Move [`PendingAssignment`] into a thread where blocking is acceptable.
-  #[cfg(feature = "tokio-runtime")]
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
   where
     F: for<'b> FnOnce(PendingAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
   {
     let batch: PendingAssignment<'_, T, N> = unsafe { std::mem::transmute(self) };
     tokio::task::spawn_blocking(move || f(batch)).await.unwrap()
-  }
-
-  /// Move [`PendingAssignment`] into a thread where blocking is acceptable.
-  #[cfg(feature = "async-std-runtime")]
-  pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
-  where
-    F: for<'b> FnOnce(PendingAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
-  {
-    let batch: PendingAssignment<'_, T, N> = unsafe { std::mem::transmute(self) };
-    async_std::task::spawn_blocking(move || f(batch)).await
   }
 }
 
@@ -174,25 +160,12 @@ where
   }
 
   /// Move [`TaskAssignment`] into a thread where blocking is acceptable
-  #[cfg(feature = "tokio-runtime")]
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
   where
     F: for<'b> FnOnce(TaskAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
   {
     let batch: TaskAssignment<'_, T, N> = unsafe { std::mem::transmute(self) };
     tokio::task::spawn_blocking(move || f(batch)).await.unwrap()
-  }
-
-  /// Move [`TaskAssignment`] into a thread where blocking is acceptable
-  #[cfg(feature = "async-std-runtime")]
-  pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
-  where
-    F: for<'b> FnOnce(TaskAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
-  {
-    let batch: TaskAssignment<'_, T, N> = unsafe { std::mem::transmute(self) };
-    async_std::task::spawn_blocking(move || f(batch))
-      .await
-      .unwrap()
   }
 }
 
@@ -355,6 +328,7 @@ where
   }
 
   /// Move [`BoundedSlice`] into a thread where blocking is acceptable.
+  #[cfg(not(loom))]
   pub fn with_blocking<F, R>(self, f: F) -> JoinHandle<R>
   where
     F: for<'b> FnOnce(BoundedSlice<'b, T, N>) -> R + Send + 'static,

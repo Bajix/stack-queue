@@ -13,8 +13,8 @@ publish = false
 async_t = "0.7"
 crossbeam-deque = "0.8.2"
 flume = "0.10.14"
-futures = "0.3.25"
-stack-queue = { path = "../stack-queue", features = ["tokio-runtime"] }
+futures = "0.3.26"
+stack-queue = { path = "../stack-queue" }
 swap-queue = "1.1.0"
 tokio = { version = "1", features = ["rt", "macros", "time"] }
 

@@ -2,7 +2,7 @@
 authors = ["Thomas Sieverding <Thomas@bajix.com>"]
 edition = "2021"
 name = "stack-queue"
-version = "0.2.0"
+version = "0.3.0"
 description = "Heapless auto-batching queue"
 readme = "../../README.md"
 license = "MIT"
@@ -10,25 +10,21 @@ repository = "https://github.com/Bajix/stack-queue/"
 
 [dependencies]
 async_t = "0.7"
-async-local = "0.11"
-async-std = { version = "1", features = ["attributes"], optional = true }
+async-local = { version = "0.15", default-features = false, features = [
+  "tokio-runtime",
+] }
 cache-padded = "1.2"
-derive-stack-queue = { version = "0.2.0", path = "../derive-stack-queue" }
+derive-stack-queue = { version = "0.3.0", path = "../derive-stack-queue" }
 diesel = { version = "2", optional = true }
 pin-project = "1"
-static_assertions = "1.1"
-tokio = { version = "1", features = [
-  "macros",
-  "rt-multi-thread",
-  "rt",
-  "sync",
-], optional = true }
+tokio = { version = "1", features = ["rt", "sync"] }
 
 [dev-dependencies]
-futures = "0.3.25"
+futures = "0.3.26"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [target.'cfg(loom)'.dependencies]
-futures-test = "0.3.25"
+futures-test = "0.3.26"
 loom = { version = "0.5.6", features = ["futures"] }
 
 [lib]
@@ -36,22 +32,21 @@ doctest = false
 bench = false
 
 [features]
-default = ["tokio-runtime"]
-boxed = ["async_t/boxed", "async-local/boxed"]
+default = ["leaky-context"]
+
+# Downgrade async_t to async_trait::async_trait
+boxed = ["async_t/boxed"]
+
+# Tokio Runtime configured with a barrier-synchronized shutdown as to ensure tasks never outlive worker thread owned local data
+barrier-protected-runtime = ["async-local/barrier-protected-runtime"]
+
+# Compatibilty flag that makes Context<T> substitute Box::leak instead of relying the internal barrier-protected Runtime to ensure tasks never outlive runtime worker owned thread local data by rendezvousing during shutdown
+leaky-context = ["async-local/leaky-context"]
+
 # Implement [BelongsTo](https://docs.rs/diesel/2/diesel/associations/trait.BelongsTo.html) for [TaskRef<T>](https://docs.rs/stack-queue/latest/stack_queue/task/struct.TaskRef.html)
 diesel-associations = ["diesel"]
-tokio-runtime = [
-  "tokio",
-  "async-local/tokio-runtime",
-  "derive-stack-queue/tokio-runtime",
-]
-async-std-runtime = [
-  "async-std",
-  "async-local/async-std-runtime",
-  "derive-stack-queue/async-std-runtime",
-]
 
 [package.metadata.docs.rs]
-features = ["tokio-runtime", "diesel-associations"]
+features = ["diesel-associations"]
 all-features = false
 rustdoc-args = ["--cfg", "docsrs"]

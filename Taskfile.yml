@@ -23,14 +23,14 @@ tasks:
     env:
       RUSTFLAGS: "-C target-cpu=native"
     cmds:
-      - cargo bench --profile release
+      - cargo bench --profile release --no-default-features --features barrier-protected-runtime
 
   bench-slim:
     env:
       RUSTFLAGS: "-C target-cpu=native"
       FILTER: Batching/(?:crossbeam|stack-queue::TaskQueue|stack-queue::BackgroundQueue)/16
     cmds:
-      - cargo bench --profile release -- $FILTER
+      - cargo bench --profile release --no-default-features --features barrier-protected-runtime -- $FILTER
 
   generate-bench-table:
     env:
@@ -48,7 +48,7 @@ tasks:
 
   test-miri:
     cmds:
-      - cargo miri test -Z build-std --target $TARGET --features tokio-runtime -- --nocapture
+      - cargo miri test -Z build-std --target $TARGET -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     env:
@@ -56,13 +56,13 @@ tasks:
 
   clippy-tests:
     cmds:
-      - cargo clippy --tests --features tokio-runtime
+      - cargo clippy --tests
     sources:
       - crates/stack-queue/**/*.rs
 
   check-tests:
     cmds:
-      - cargo check --tests --features tokio-runtime
+      - cargo check --tests
     sources:
       - crates/stack-queue/**/*.rs
 
@@ -73,10 +73,6 @@ tasks:
       - crates/stack-queue/**/*.rs
     env:
       RUSTFLAGS: --cfg loom
-
-  test-async-std:
-    cmds:
-      - cargo test -p stack-queue --no-default-features --features async-std-runtime -- --nocapture
 
   test-loom:
     cmds:
@@ -95,7 +91,7 @@ tasks:
 
   test-address-sanitizer:
     cmds:
-      - cargo test -Z build-std --target $TARGET --features tokio-runtime -- --nocapture
+      - cargo test -Z build-std --target $TARGET -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     ev:
@@ -103,7 +99,7 @@ tasks:
 
   test-thread-sanitizer:
     cmds:
-      - cargo test -Z build-std --target $TARGET --features tokio-runtime -- --nocapture
+      - cargo test -Z build-std --target $TARGET -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     env:
@@ -111,7 +107,7 @@ tasks:
 
   test-leak-sanitizer:
     cmds:
-      - cargo test -Z build-std --target $TARGET --features tokio-runtime -- --nocapture
+      - cargo test -Z build-std --target $TARGET -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     env:

@@ -138,12 +138,6 @@ pub fn local_queue(
 
   let queue = quote!(stack_queue::StackQueue<#buffer_cell, #buffer_size>);
 
-  let yield_now = if cfg!(feature = "tokio-runtime") {
-    quote!(tokio::task::yield_now().await)
-  } else {
-    quote!(async_std::task::yield_now().await)
-  };
-
   let queue_impl = match &variant {
     Variant::TaskQueue | Variant::BackgroundQueue => quote!(
       #[stack_queue::async_t::async_trait]
@@ -163,13 +157,13 @@ pub fn local_queue(
           loop {
             match <Self as stack_queue::LocalQueue<N>>::queue().with(|queue| unsafe { queue.push::<Self>(task) }) {
               Ok(Some(batch)) => {
-                #yield_now;
+                tokio::task::yield_now().await;
                 break Some(f(batch).await);
               }
               Ok(None) => break None,
               Err(value) => {
                 task = value;
-                #yield_now;
+                tokio::task::yield_now().await;
               }
             }
           }

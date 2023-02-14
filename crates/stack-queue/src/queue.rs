@@ -13,8 +13,6 @@ use std::{
 };
 
 use async_local::{AsContext, AsyncLocal, Context};
-#[cfg(feature = "async-std-runtime")]
-use async_std::task::{spawn, yield_now};
 use async_t::async_trait;
 use cache_padded::CachePadded;
 #[cfg(loom)]
@@ -23,7 +21,6 @@ use loom::{
   sync::atomic::{AtomicUsize, Ordering},
   thread::LocalKey,
 };
-#[cfg(feature = "tokio-runtime")]
 use tokio::task::{spawn, yield_now};
 
 use crate::{
@@ -477,19 +474,14 @@ where
     });
   }
 }
-#[cfg(all(
-  test,
-  any(loom, feature = "tokio-runtime", feature = "async-std-runtime")
-))]
+#[cfg(test)]
 mod test {
   #[cfg(not(loom))]
   use std::{thread, time::Duration};
 
-  #[cfg(feature = "async-std-runtime")]
-  use async_std::task::yield_now;
   #[cfg(not(loom))]
   use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
-  #[cfg(all(not(loom), feature = "tokio-runtime"))]
+  #[cfg(not(loom))]
   use tokio::{
     sync::{oneshot, Barrier},
     task::{spawn, yield_now},
@@ -499,7 +491,7 @@ mod test {
     assignment::{CompletionReceipt, PendingAssignment},
     local_queue, TaskQueue,
   };
-  #[cfg(all(not(loom), feature = "tokio-runtime"))]
+  #[cfg(not(loom))]
   use crate::{queue::UnboundedSlice, BackgroundQueue};
 
   struct EchoQueue;
@@ -517,8 +509,7 @@ mod test {
   }
 
   #[cfg(not(loom))]
-  #[cfg_attr(feature = "tokio-runtime", tokio::test(flavor = "multi_thread"))]
-  #[cfg_attr(feature = "async-std-runtime", async_std::test)]
+  #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
 
   async fn it_process_tasks() {
     let batch: Vec<usize> = join_all((0..100).map(EchoQueue::auto_batch)).await;
@@ -527,8 +518,7 @@ mod test {
   }
 
   #[cfg(not(loom))]
-  #[cfg_attr(feature = "tokio-runtime", tokio::test(flavor = "multi_thread"))]
-  #[cfg_attr(feature = "async-std-runtime", async_std::test)]
+  #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
 
   async fn it_cycles() {
     for i in 0..512 {
@@ -558,8 +548,9 @@ mod test {
     }
   }
 
-  #[cfg(all(not(loom), any(feature = "tokio-runtime")))]
-  #[cfg_attr(feature = "tokio-runtime", tokio::test(flavor = "multi_thread"))]
+  #[cfg(not(loom))]
+  #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
+
   async fn it_has_drop_safety() {
     let handle = spawn(async {
       SlowQueue::auto_batch(0).await;
@@ -590,8 +581,8 @@ mod test {
     }
   }
 
-  #[cfg(all(not(loom), any(feature = "tokio-runtime")))]
-  #[cfg_attr(feature = "tokio-runtime", tokio::test(flavor = "multi_thread"))]
+  #[cfg(not(loom))]
+  #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
 
   async fn it_negotiates_receiver_drop() {
     use std::sync::Arc;
@@ -685,10 +676,10 @@ mod test {
     });
   }
 
-  #[cfg(all(not(loom), any(feature = "tokio-runtime")))]
+  #[cfg(not(loom))]
   struct EchoBackgroundQueue;
 
-  #[cfg(all(not(loom), any(feature = "tokio-runtime")))]
+  #[cfg(not(loom))]
   #[local_queue]
   impl BackgroundQueue for EchoBackgroundQueue {
     type Task = (usize, oneshot::Sender<usize>);
@@ -702,8 +693,8 @@ mod test {
     }
   }
 
-  #[cfg(all(not(loom), any(feature = "tokio-runtime")))]
-  #[cfg_attr(feature = "tokio-runtime", tokio::test(flavor = "multi_thread"))]
+  #[cfg(not(loom))]
+  #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
 
   async fn it_process_background_tasks() {
     #[allow(clippy::needless_collect)]
@@ -721,8 +712,8 @@ mod test {
   }
 
   #[cfg(not(loom))]
-  #[cfg_attr(feature = "tokio-runtime", tokio::test(flavor = "multi_thread"))]
-  #[cfg_attr(feature = "async-std-runtime", async_std::test)]
+  #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
+
   async fn it_batch_reduces() {
     use crate::BatchReducer;
 
