@@ -81,6 +81,26 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
 }
 
 /// Fire and forget auto-batched queue
+/// 
+/// # Example
+/// 
+/// ```rust
+/// struct EchoQueue;
+///
+/// #[local_queue]
+/// impl BackgroundQueue for EchoQueue {
+///   type Task = (usize, oneshot::Sender<usize>);
+///
+///   async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self::Task, N>) {
+///     let tasks = tasks.into_bounded().to_vec();
+///
+///     for (val, tx) in tasks.into_iter() {
+///       tx.send(val).ok();
+///     }
+///   }
+/// }
+///```
+/// 
 #[async_trait]
 pub trait BackgroundQueue: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
@@ -97,6 +117,24 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
 }
 
 /// Auto-batched queue whereby batches are reduced by a closure
+/// 
+/// # Example
+/// 
+/// ```rust
+/// struct Accumulator;
+///
+/// #[local_queue]
+/// impl BatchReducer for Accumulator {
+///   type Task = usize;
+/// }
+/// 
+/// let sum = Accumulator::batch_reduce(9000, |slice| {
+///   Box::pin(async move { slice.into_bounded().iter().sum::<usize>() })
+/// }).await;
+/// ```
+///
+
+
 #[async_trait]
 pub trait BatchReducer: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;

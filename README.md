@@ -3,9 +3,7 @@
 [![Cargo](https://img.shields.io/crates/v/stack-queue.svg)](https://crates.io/crates/stack-queue)
 [![Documentation](https://docs.rs/stack-queue/badge.svg)](https://docs.rs/stack-queue)
 
-## Performance oriented heapless auto batching queue
-
-Building on top of barrier-protected thread-owned buffers, [stack-queue](https://crates.io/crates/stack-queue) delivers a set of algorithms for asynchronously batching tasks in a way that allows for constant-time deferrable take-all batch collection by negotiating exclusive access over a range of tasks. By using a fixed-size circular buffer, writes can cycle without atomic indexing while instead using write confirmations to both synchronize and observe interlaced batch boundaries under a data-race free relaxed atomic model. Not only does this halve the number of atomic calls per write operation, but this also creates an asymmetrical performance profile with task ranges bounded by a single atomic operation per batch, making this ideal for use-cases in which it's desireable for task batches to grow while awaiting resources, such as for deferring batch bounding until after a database connection is available for a batched query.
+A heapless auto-batching queue featuring deferrable batching by way of negotiating exclusive access over task ranges on thread-owned circular buffers. As tasks continue to be enqueued until batches are bounded and doing so is constant-time and can be deferred until after a database connection has been acquired, this allows for optimal opportunitistic batching without collection overhead and delivers maximum throughput at all workload levels without superfluous timeouts.
 
 ## Runtime Configuration
 
