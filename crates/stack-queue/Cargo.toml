@@ -10,7 +10,7 @@ repository = "https://github.com/Bajix/stack-queue/"
 
 [dependencies]
 async_t = "0.7"
-async-local = { version = "0.15", default-features = false, features = [
+async-local = { version = "1.0", default-features = false, features = [
   "tokio-runtime",
 ] }
 cache-padded = "1.2"
