@@ -236,6 +236,7 @@ where
 unsafe impl<T> Send for TaskRef<T> where T: TaskQueue {}
 unsafe impl<T> Sync for TaskRef<T> where T: TaskQueue {}
 
+#[cfg_attr(docsrs, doc(cfg(feature = "diesel-associations")))]
 #[cfg(feature = "diesel-associations")]
 impl<T, Parent> BelongsTo<Parent> for TaskRef<T>
 where

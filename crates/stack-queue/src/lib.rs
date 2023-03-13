@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "boxed"), feature(type_alias_impl_trait))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 extern crate self as stack_queue;
 
