@@ -23,32 +23,32 @@ tasks:
     env:
       RUSTFLAGS: "-C target-cpu=native"
     cmds:
-      - cargo bench --profile release --no-default-features --features barrier-protected-runtime
+      - cargo bench --profile release -p echo-batched
 
   bench-slim:
     env:
       RUSTFLAGS: "-C target-cpu=native"
       FILTER: Batching/(?:crossbeam|stack-queue::TaskQueue|stack-queue::BackgroundQueue)/16
     cmds:
-      - cargo bench --profile release --no-default-features --features barrier-protected-runtime -- $FILTER
+      - cargo bench --profile release -p echo-batched -- $FILTER
 
   generate-bench-table:
     env:
       RUSTFLAGS: "-C target-cpu=native"
       FILTER: Batching/(?:crossbeam|flume|stack-queue::TaskQueue|stack-queue::BackgroundQueue|tokio::mpsc)/16
     cmds:
-      - cargo criterion --message-format=json -- $FILTER | criterion-table
+      - cargo criterion --message-format=json -p echo-batched -- $FILTER | criterion-table
 
   flamegraph:
     env:
       RUSTFLAGS: "-C target-cpu=native"
       CARGO_PROFILE_BENCH_DEBUG: true
     cmds:
-      - cargo flamegraph --bench benchmarks --root -- stack_queue --bench
+      - cargo flamegraph --bench benchmarks --root -p echo-batched -- stack_queue --bench
 
   test-miri:
     cmds:
-      - cargo miri test -Z build-std --target $TARGET -- --nocapture
+      - cargo miri test -Z build-std -p stack-queue --target $TARGET -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     env:
@@ -56,19 +56,19 @@ tasks:
 
   clippy-tests:
     cmds:
-      - cargo clippy --tests
+      - cargo clippy -p stack-queue --tests
     sources:
       - crates/stack-queue/**/*.rs
 
   check-tests:
     cmds:
-      - cargo check --tests
+      - cargo check -p stack-queue --tests
     sources:
       - crates/stack-queue/**/*.rs
 
   check-loom:
     cmds:
-      - cargo check --tests
+      - cargo check -p stack-queue --tests
     sources:
       - crates/stack-queue/**/*.rs
     env:
@@ -76,7 +76,7 @@ tasks:
 
   test-loom:
     cmds:
-      - cargo test -Z build-std --target $TARGET -- --nocapture
+      - cargo test -Z build-std -p stack-queue --target $TARGET -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     env:
@@ -91,7 +91,7 @@ tasks:
 
   test-address-sanitizer:
     cmds:
-      - cargo test -Z build-std --target $TARGET -- --nocapture
+      - cargo test -Z build-std -p stack-queue --target $TARGET -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     ev:
@@ -99,7 +99,7 @@ tasks:
 
   test-thread-sanitizer:
     cmds:
-      - cargo test -Z build-std --target $TARGET -- --nocapture
+      - cargo test -Z build-std -p stack-queue --target $TARGET -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     env:
@@ -107,7 +107,7 @@ tasks:
 
   test-leak-sanitizer:
     cmds:
-      - cargo test -Z build-std --target $TARGET -- --nocapture
+      - cargo test -Z build-std -p stack-queue --target $TARGET -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
     env:
