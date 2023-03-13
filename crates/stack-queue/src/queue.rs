@@ -81,9 +81,9 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
 }
 
 /// Fire and forget auto-batched queue
-/// 
+///
 /// # Example
-/// 
+///
 /// ```rust
 /// struct EchoQueue;
 ///
@@ -99,8 +99,7 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
 ///     }
 ///   }
 /// }
-///```
-/// 
+/// ```
 #[async_trait]
 pub trait BackgroundQueue: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
@@ -117,9 +116,9 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
 }
 
 /// Auto-batched queue whereby batches are reduced by a closure
-/// 
+///
 /// # Example
-/// 
+///
 /// ```rust
 /// struct Accumulator;
 ///
@@ -127,13 +126,11 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
 /// impl BatchReducer for Accumulator {
 ///   type Task = usize;
 /// }
-/// 
+///
 /// let sum = Accumulator::batch_reduce(9000, |slice| {
 ///   Box::pin(async move { slice.into_bounded().iter().sum::<usize>() })
 /// }).await;
 /// ```
-///
-
 
 #[async_trait]
 pub trait BatchReducer: Send + Sync + Sized + 'static {

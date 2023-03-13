@@ -3,7 +3,15 @@
 [![Cargo](https://img.shields.io/crates/v/stack-queue.svg)](https://crates.io/crates/stack-queue)
 [![Documentation](https://docs.rs/stack-queue/badge.svg)](https://docs.rs/stack-queue)
 
-A heapless auto-batching queue featuring deferrable batching by way of negotiating exclusive access over task ranges on thread-owned circular buffers. As tasks continue to be enqueued until batches are bounded and doing so is constant-time and can be deferred until after a database connection has been acquired, this allows for optimal opportunitistic batching without collection overhead and delivers maximum throughput at all workload levels without superfluous timeouts.
+A heapless auto-batching queue featuring deferrable batching by way of negotiating exclusive access over task ranges on thread-owned circular buffers. As tasks continue to be enqueued until batches are bounded, doing so can be deferred until after a database connection has been acquired as to allow for opportunitistic batching. This delivers optimal batching at all workload levels without batch collection overhead, superfluous timeouts, nor unnecessary allocations.
+
+## Usage
+
+Impl one of the following while using the [local_queue](https://docs.rs/stack-queue/latest/stack_queue/attr.local_queue.html) macro:
+
+* [`TaskQueue`](https://docs.rs/stack-queue/latest/stack_queue/trait.TaskQueue.html), for batching with per-task receivers
+* [`BackgroundQueue`](https://docs.rs/stack-queue/latest/stack_queue/trait.BackgroundQueue.html), for background processsing task batches without receivers
+* [`BatchReducer`](https://docs.rs/stack-queue/latest/stack_queue/trait.BatchReducer.html), for using closures to reduce over batched data
 
 ## Runtime Configuration
 
