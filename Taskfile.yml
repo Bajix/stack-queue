@@ -15,7 +15,7 @@ tasks:
 
   doc:
     cmds:
-      - cargo +nightly doc -p stack-queue --features diesel-associations --open
+      - cargo +nightly doc -p stack-queue --features diesel-associations --features redis-args --open
     env:
       RUSTDOCFLAGS: --cfg docsrs
 

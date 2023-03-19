@@ -27,6 +27,8 @@ use loom::{
   thread::yield_now,
 };
 use pin_project::{pin_project, pinned_drop};
+#[cfg(feature = "redis-args")]
+use redis::{RedisWrite, ToRedisArgs};
 use tokio::task::spawn;
 
 use crate::queue::{LocalQueue, QueueFull, TaskQueue};
@@ -253,6 +255,21 @@ where
 
   fn foreign_key_column() -> Self::ForeignKeyColumn {
     <T::Task as BelongsTo<Parent>>::foreign_key_column()
+  }
+}
+
+#[cfg_attr(docsrs, doc(cfg(feature = "redis-args")))]
+#[cfg(feature = "redis-args")]
+impl<T> ToRedisArgs for TaskRef<T>
+where
+  T: TaskQueue,
+  T::Task: ToRedisArgs,
+{
+  fn write_redis_args<W>(&self, out: &mut W)
+  where
+    W: ?Sized + RedisWrite,
+  {
+    self.task().write_redis_args(out)
   }
 }
 

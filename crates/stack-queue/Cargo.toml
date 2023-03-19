@@ -2,7 +2,7 @@
 authors = ["Thomas Sieverding <Thomas@bajix.com>"]
 edition = "2021"
 name = "stack-queue"
-version = "0.3.3"
+version = "0.3.4"
 description = "Heapless auto-batching queue"
 readme = "../../README.md"
 license = "MIT"
@@ -17,6 +17,7 @@ cache-padded = "1.2"
 derive-stack-queue = { version = "0.3.3", path = "../derive-stack-queue" }
 diesel = { version = "2", optional = true }
 pin-project = "1"
+redis = { version = "0.22", optional = true }
 tokio = { version = "1", features = ["rt", "sync"] }
 
 [dev-dependencies]
@@ -46,7 +47,10 @@ leaky-context = ["async-local/leaky-context"]
 # Implement [BelongsTo](https://docs.rs/diesel/2/diesel/associations/trait.BelongsTo.html) for [TaskRef<T>](https://docs.rs/stack-queue/latest/stack_queue/task/struct.TaskRef.html)
 diesel-associations = ["diesel"]
 
+# Implement [ToRedisArgs](https://docs.rs/redis/0.22.3/redis/trait.ToRedisArgs.html) for [TaskRef<T>](https://docs.rs/stack-queue/latest/stack_queue/task/struct.TaskRef.html)
+redis-args = ["redis"]
+
 [package.metadata.docs.rs]
-features = ["diesel-associations"]
+features = ["diesel-associations", "redis-args"]
 all-features = false
 rustdoc-args = ["--cfg", "docsrs"]
