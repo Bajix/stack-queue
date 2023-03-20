@@ -236,7 +236,7 @@ where
     }
   }
 
-  // Establish a range of exclusive access over a buffer
+  /// Establish a range of exclusive access over a buffer
   pub fn into_bounded(self) -> BoundedSlice<'a, T, N> {
     let range = self.set_bounds();
     let queue = self.queue;
