@@ -13,9 +13,9 @@ Impl one of the following while using the [local_queue](https://docs.rs/stack-qu
 * [`BackgroundQueue`](https://docs.rs/stack-queue/latest/stack_queue/trait.BackgroundQueue.html), for background processsing task batches without receivers
 * [`BatchReducer`](https://docs.rs/stack-queue/latest/stack_queue/trait.BatchReducer.html), for using closures to reduce over batched data
 
-## Runtime Configuration (optional)
+## Optimal Runtime Configuration
 
-For best performance, use the Tokio runtime as configured via the [tokio::main](https://docs.rs/tokio/latest/tokio/attr.main.html) or [tokio::test](https://docs.rs/tokio/latest/tokio/attr.test.html) macro with the `crate` attribute set to `async_local` while the `barrier-protected-runtime` feature is enabled on [`async-local`](https://crates.io/crates/async-local). Doing so configures the Tokio runtime with a barrier that rendezvous runtime worker threads during shutdown in a way that ensures tasks never outlive thread local data owned by runtime worker threads and obviates the need for [Box::leak](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.leak) as a means of lifetime extension.
+For best performance, exclusively use the Tokio runtime as configured via the [tokio::main](https://docs.rs/tokio/latest/tokio/attr.main.html) or [tokio::test](https://docs.rs/tokio/latest/tokio/attr.test.html) macro with the `crate` attribute set to `async_local` while the `barrier-protected-runtime` feature is enabled on [`async-local`](https://crates.io/crates/async-local). Doing so configures the Tokio runtime with a barrier that rendezvous runtime worker threads during shutdown in a way that ensures tasks never outlive thread local data owned by runtime worker threads and obviates the need for [Box::leak](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.leak) as a means of lifetime extension.
 
 ## Benchmark results // batching 16 tasks
 
