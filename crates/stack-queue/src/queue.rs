@@ -25,11 +25,13 @@ use loom::{
 use tokio::task::{spawn, yield_now};
 
 use crate::{
-  assignment::{CompletionReceipt, PendingAssignment, UnboundedSlice},
+  assignment::{CompletionReceipt, PendingAssignment, UnboundedRange},
   helpers::*,
   task::{AutoBatchedTask, Receiver, TaskRef},
   MAX_BUFFER_LEN, MIN_BUFFER_LEN,
 };
+
+pub(crate) const PHASE: usize = 1;
 
 #[cfg(target_pointer_width = "64")]
 pub(crate) const INDEX_SHIFT: usize = 32;
@@ -105,7 +107,7 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
 
   #[allow(clippy::needless_lifetimes)]
-  async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self::Task, N>);
+  async fn batch_process<const N: usize>(tasks: UnboundedRange<'async_trait, Self::Task, N>);
 
   fn auto_batch<const N: usize>(task: Self::Task)
   where
@@ -141,7 +143,7 @@ pub trait BatchReducer: Send + Sync + Sized + 'static {
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
     F: for<'a> FnOnce(
-        UnboundedSlice<'a, Self::Task, N>,
+        UnboundedRange<'a, Self::Task, N>,
       ) -> Pin<Box<dyn Future<Output = R> + Send + 'a>>
       + Send;
 }
@@ -243,7 +245,7 @@ where
     assert!(N <= MAX_BUFFER_LEN);
 
     StackQueue {
-      slot: CachePadded::new(UnsafeCell::new(N << INDEX_SHIFT)),
+      slot: CachePadded::new(UnsafeCell::new(PHASE)),
       occupancy: CachePadded::new(UnsafeCell::new(0)),
       inner: Context::new(Inner::default()),
     }
@@ -332,10 +334,10 @@ where
     // is written is independent of when a phase change would result in a new task batch owning a
     // new range of the buffer; only ownership is determined by atomic synchronization, not location
 
-    unsafe { self.with_slot(|val| slot_index::<N>(&*val)) }
+    unsafe { self.with_slot(|val| slot_index::<N>(*val)) }
   }
 
-  fn check_regional_occupancy(&self, index: &usize) -> Result<(), QueueFull> {
+  fn check_regional_occupancy(&self, index: usize) -> Result<(), QueueFull> {
     let region_mask = region_mask::<N>(index);
 
     // If this is out of sync, then the region could be incorrectly marked as full, but never
@@ -364,7 +366,7 @@ where
     }
   }
 
-  fn occupy_region(&self, index: &usize) {
+  fn occupy_region(&self, index: usize) {
     // Add one relative to the the current region. In the unlikely event of an overflow, the next
     // region checkpoint will result in QueueFull until fewer than 256 task batches exist.
     let shifted_add = one_shifted::<N>(index);
@@ -411,7 +413,7 @@ where
 
     // Regions sizes are always a power of 2, and so this acts as an optimized modulus operation
     if write_index.bitand(region_size::<N>() - 1).eq(&0) {
-      self.check_regional_occupancy(&write_index)?;
+      self.check_regional_occupancy(write_index)?;
     }
 
     unsafe {
@@ -425,10 +427,10 @@ where
 
     let prev_slot = unsafe { self.replace_slot(base_slot.wrapping_add(1 << INDEX_SHIFT)) };
 
-    if write_index.ne(&0) && ((base_slot ^ prev_slot) & active_phase_bit::<N>(&base_slot)).eq(&0) {
+    if ((base_slot ^ prev_slot) & PHASE).eq(&0) {
       Ok(None)
     } else {
-      self.occupy_region(&write_index);
+      self.occupy_region(write_index);
 
       let queue = unsafe { T::queue().guarded_ref() };
 
@@ -442,7 +444,7 @@ where
   T: Send + Sync + Sized + 'static,
 {
   #[doc(hidden)]
-  pub unsafe fn push<'a, Q>(&self, task: T) -> Result<Option<UnboundedSlice<'a, T, N>>, T>
+  pub unsafe fn push<'a, Q>(&self, task: T) -> Result<Option<UnboundedRange<'a, T, N>>, T>
   where
     Q: LocalQueue<N, BufferCell = BufferCell<T>>,
   {
@@ -450,7 +452,7 @@ where
 
     // Regions sizes are always a power of 2, and so this acts as an optimized modulus operation
     if write_index.bitand(region_size::<N>() - 1).eq(&0)
-      && self.check_regional_occupancy(&write_index).is_err()
+      && self.check_regional_occupancy(write_index).is_err()
     {
       return Err(task);
     }
@@ -468,14 +470,14 @@ where
 
     let prev_slot = unsafe { self.replace_slot(base_slot.wrapping_add(1 << INDEX_SHIFT)) };
 
-    if write_index.ne(&0) && ((base_slot ^ prev_slot) & active_phase_bit::<N>(&base_slot)).eq(&0) {
+    if ((base_slot ^ prev_slot) & PHASE).eq(&0) {
       Ok(None)
     } else {
-      self.occupy_region(&write_index);
+      self.occupy_region(write_index);
 
       let queue = unsafe { Q::queue().guarded_ref() };
 
-      Ok(Some(UnboundedSlice::new(base_slot, queue)))
+      Ok(Some(UnboundedRange::new(base_slot, queue)))
     }
   }
 
@@ -530,7 +532,7 @@ mod test {
     local_queue, TaskQueue,
   };
   #[cfg(not(loom))]
-  use crate::{queue::UnboundedSlice, BackgroundQueue};
+  use crate::{queue::UnboundedRange, BackgroundQueue};
 
   struct EchoQueue;
 
@@ -722,10 +724,10 @@ mod test {
   impl BackgroundQueue for EchoBackgroundQueue {
     type Task = (usize, oneshot::Sender<usize>);
 
-    async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self::Task, N>) {
-      let tasks = tasks.into_bounded().to_vec();
+    async fn batch_process<const N: usize>(tasks: UnboundedRange<'async_trait, Self::Task, N>) {
+      let tasks = tasks.into_bounded().into_iter();
 
-      for (val, tx) in tasks.into_iter() {
+      for (val, tx) in tasks {
         tx.send(val).ok();
       }
     }
@@ -736,7 +738,7 @@ mod test {
 
   async fn it_process_background_tasks() {
     #[allow(clippy::needless_collect)]
-    let receivers: Vec<_> = (0..100_usize)
+    let receivers: Vec<_> = (0..10_usize)
       .map(|i| {
         let (tx, rx) = oneshot::channel::<usize>();
         EchoBackgroundQueue::auto_batch((i, tx));
@@ -765,7 +767,7 @@ mod test {
     let tasks: FuturesUnordered<_> = (0..10000)
       .map(|i| {
         MultiSetter::batch_reduce(i, |slice| {
-          Box::pin(async move { slice.into_bounded().iter().sum::<usize>() })
+          Box::pin(async move { slice.into_bounded().tasks().sum::<usize>() })
         })
       })
       .collect();

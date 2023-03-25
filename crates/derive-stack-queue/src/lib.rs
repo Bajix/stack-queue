@@ -151,7 +151,7 @@ pub fn local_queue(
         async fn batch_reduce<const N: usize, F, R>(mut task: Self::Task, f: F) -> Option<R>
         where
           Self: stack_queue::LocalQueue<N, BufferCell = stack_queue::BufferCell<#task>>,
-          F: for<'a> FnOnce(stack_queue::assignment::UnboundedSlice<'a, #task, N>) -> std::pin::Pin<Box<dyn std::future::Future<Output = R> + Send + 'a>> + Send,
+          F: for<'a> FnOnce(stack_queue::assignment::UnboundedRange<'a, #task, N>) -> std::pin::Pin<Box<dyn std::future::Future<Output = R> + Send + 'a>> + Send,
         {
           loop {
             match <Self as stack_queue::LocalQueue<N>>::queue().with(|queue| unsafe { queue.push::<Self>(task) }) {

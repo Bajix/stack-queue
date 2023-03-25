@@ -7,7 +7,7 @@ use std::{
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 use stack_queue::{
-  assignment::{CompletionReceipt, PendingAssignment, UnboundedSlice},
+  assignment::{CompletionReceipt, PendingAssignment, UnboundedRange},
   local_queue, BackgroundQueue, TaskQueue,
 };
 use tokio::{runtime::Builder, sync::oneshot};
@@ -73,11 +73,11 @@ pub struct BackgroundTimerQueue;
 impl BackgroundQueue for BackgroundTimerQueue {
   type Task = (Instant, oneshot::Sender<Duration>);
 
-  async fn batch_process<const N: usize>(batch: UnboundedSlice<'async_trait, Self::Task, N>) {
-    let tasks = batch.into_bounded().to_vec();
+  async fn batch_process<const N: usize>(batch: UnboundedRange<'async_trait, Self::Task, N>) {
+    let tasks = batch.into_bounded().into_iter();
     let collected_at = Instant::now();
 
-    tasks.into_iter().for_each(|(enqueued_at, tx)| {
+    tasks.for_each(|(enqueued_at, tx)| {
       tx.send(collected_at.duration_since(enqueued_at)).unwrap();
     });
   }

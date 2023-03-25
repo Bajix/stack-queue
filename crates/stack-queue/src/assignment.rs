@@ -1,10 +1,6 @@
 #[cfg(not(loom))]
 use std::sync::atomic::{fence, Ordering};
-use std::{
-  marker::PhantomData,
-  mem,
-  ops::{BitAnd, Deref, Range},
-};
+use std::{marker::PhantomData, mem, ops::Range};
 
 use async_local::RefGuard;
 #[cfg(loom)]
@@ -12,8 +8,8 @@ use loom::sync::atomic::{fence, Ordering};
 use tokio::task::{spawn_blocking, JoinHandle};
 
 use crate::{
-  helpers::{active_phase_bit, one_shifted},
-  queue::{Inner, TaskQueue, INDEX_SHIFT},
+  helpers::one_shifted,
+  queue::{Inner, TaskQueue, INDEX_SHIFT, PHASE},
   task::TaskRef,
   BufferCell,
 };
@@ -33,28 +29,9 @@ where
   }
 
   fn set_assignment_bounds(&self) -> Range<usize> {
-    let phase_bit = active_phase_bit::<N>(&self.base_slot);
+    let end_slot = self.queue.slot.fetch_xor(PHASE, Ordering::Relaxed);
 
-    let end_slot = self.queue.slot.fetch_xor(phase_bit, Ordering::Relaxed);
-
-    // If the N bit has changed it means the queue has wrapped around the beginning
-    if (N << INDEX_SHIFT).bitand(self.base_slot ^ end_slot).eq(&0) {
-      // (base_slot >> INDEX_SHIFT) extracts the current index
-      // Because N is a power of 2, N - 1 will be a mask with N bits set
-      // For all values N, index & (N - 1) is always index % N however with fewer instructions
-      let start = (self.base_slot >> INDEX_SHIFT) & (N - 1);
-
-      // It can be known that the end slot will never wrap around because usize::MAX is divisable by
-      // all values N
-      let end = (end_slot >> INDEX_SHIFT) & (N - 1);
-
-      start..end
-    } else {
-      // The active phase bit alternated when the N bit changed as a consequence of this wrapping
-      // around to the beginning, and so this batch goes to the end and the queue will create a new
-      // task batch while ignoring that the now inactive phase bit was changed.
-      (self.base_slot >> INDEX_SHIFT) & (N - 1)..N
-    }
+    (self.base_slot >> INDEX_SHIFT)..(end_slot >> INDEX_SHIFT)
   }
 
   /// By converting into a [`TaskAssignment`] the task range responsible for processing will be
@@ -109,9 +86,26 @@ where
     TaskAssignment { task_range, queue }
   }
 
-  /// A slice of the assigned task range
-  pub fn tasks(&self) -> &[TaskRef<T>] {
-    unsafe { self.queue.buffer.get_unchecked(self.task_range.clone()) }
+  pub fn as_slices(&self) -> (&[TaskRef<T>], &[TaskRef<T>]) {
+    let start = self.task_range.start & (N - 1);
+    let end = self.task_range.end & (N - 1);
+
+    if end > start {
+      unsafe { (self.queue.buffer.get_unchecked(start..end), &[]) }
+    } else {
+      unsafe {
+        (
+          self.queue.buffer.get_unchecked(start..N),
+          self.queue.buffer.get_unchecked(0..end),
+        )
+      }
+    }
+  }
+
+  /// An iterator over the assigned task range
+  pub fn tasks(&self) -> impl Iterator<Item = &TaskRef<T>> {
+    let tasks = self.as_slices();
+    tasks.0.iter().chain(tasks.1.iter())
   }
 
   /// Resolve task assignment with an iterator where indexes align with tasks
@@ -119,14 +113,10 @@ where
   where
     I: IntoIterator<Item = T::Value>,
   {
-    self
-      .tasks()
-      .iter()
-      .zip(iter)
-      .for_each(|(task_ref, value)| unsafe {
-        drop(task_ref.take_task_unchecked());
-        task_ref.resolve_unchecked(value);
-      });
+    self.tasks().zip(iter).for_each(|(task_ref, value)| unsafe {
+      drop(task_ref.take_task_unchecked());
+      task_ref.resolve_unchecked(value);
+    });
 
     self.into_completion_receipt()
   }
@@ -136,7 +126,7 @@ where
   where
     F: Fn(T::Task) -> T::Value + Sync,
   {
-    self.tasks().iter().for_each(|task_ref| unsafe {
+    self.tasks().for_each(|task_ref| unsafe {
       let task = task_ref.take_task_unchecked();
       task_ref.resolve_unchecked(op(task));
     });
@@ -145,10 +135,10 @@ where
   }
 
   fn deoccupy_buffer(&self) {
-    self
-      .queue
-      .occupancy
-      .fetch_sub(one_shifted::<N>(&self.task_range.start), Ordering::Relaxed);
+    self.queue.occupancy.fetch_sub(
+      one_shifted::<N>(self.task_range.start & (N - 1)),
+      Ordering::Relaxed,
+    );
   }
 
   fn into_completion_receipt(self) -> CompletionReceipt<T> {
@@ -176,7 +166,6 @@ where
   fn drop(&mut self) {
     self
       .tasks()
-      .iter()
       .for_each(|task_ref| unsafe { drop(task_ref.take_task_unchecked()) });
 
     self.deoccupy_buffer();
@@ -198,78 +187,58 @@ where
   }
 }
 /// A guard granting exclusive access over an unbounded range of a buffer
-pub struct UnboundedSlice<'a, T: Send + Sync + Sized + 'static, const N: usize> {
+pub struct UnboundedRange<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   base_slot: usize,
   queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
 }
 
-impl<'a, T, const N: usize> UnboundedSlice<'a, T, N>
+impl<'a, T, const N: usize> UnboundedRange<'a, T, N>
 where
   T: Send + Sync + Sized + 'static,
 {
   pub(crate) fn new(base_slot: usize, queue: RefGuard<'a, Inner<BufferCell<T>, N>>) -> Self {
-    UnboundedSlice { base_slot, queue }
+    UnboundedRange { base_slot, queue }
   }
 
   fn set_bounds(&self) -> Range<usize> {
-    let phase_bit = active_phase_bit::<N>(&self.base_slot);
-
-    let end_slot = self.queue.slot.fetch_xor(phase_bit, Ordering::Relaxed);
-
-    // If the N bit has changed it means the queue has wrapped around the beginning
-    if (N << INDEX_SHIFT).bitand(self.base_slot ^ end_slot).eq(&0) {
-      // (base_slot >> INDEX_SHIFT) extracts the current index
-      // Because N is a power of 2, N - 1 will be a mask with N bits set
-      // For all values N, index & (N - 1) is always index % N however with fewer instructions
-      let start = (self.base_slot >> INDEX_SHIFT) & (N - 1);
-
-      // It can be known that the end slot will never wrap around because usize::MAX is divisable by
-      // all values N
-      let end = (end_slot >> INDEX_SHIFT) & (N - 1);
-
-      start..end
-    } else {
-      // The active phase bit alternated when the N bit changed as a consequence of this wrapping
-      // around to the beginning, and so this batch goes to the end and the queue will create a new
-      // task batch while ignoring that the now inactive phase bit was changed.
-      (self.base_slot >> INDEX_SHIFT) & (N - 1)..N
-    }
+    let end_slot = self.queue.slot.fetch_xor(PHASE, Ordering::Relaxed);
+    (self.base_slot >> INDEX_SHIFT)..(end_slot >> INDEX_SHIFT)
   }
 
   /// Establish a range of exclusive access over a buffer
-  pub fn into_bounded(self) -> BoundedSlice<'a, T, N> {
+  pub fn into_bounded(self) -> BoundedRange<'a, T, N> {
     let range = self.set_bounds();
     let queue = self.queue;
 
     mem::forget(self);
 
-    BoundedSlice::new(range, queue)
+    BoundedRange::new(range, queue)
   }
 
   /// Move [`UnboundedSlice`] into a thread where blocking is acceptable.
   pub fn with_blocking<F, R>(self, f: F) -> JoinHandle<R>
   where
-    F: for<'b> FnOnce(UnboundedSlice<'b, T, N>) -> R + Send + 'static,
+    F: for<'b> FnOnce(UnboundedRange<'b, T, N>) -> R + Send + 'static,
     R: Send + 'static,
   {
-    let batch: UnboundedSlice<'_, T, N> = unsafe { std::mem::transmute(self) };
+    let batch: UnboundedRange<'_, T, N> = unsafe { std::mem::transmute(self) };
     spawn_blocking(move || f(batch))
   }
 }
 
-impl<'a, T, const N: usize> Drop for UnboundedSlice<'a, T, N>
+impl<'a, T, const N: usize> Drop for UnboundedRange<'a, T, N>
 where
   T: Send + Sync + Sized + 'static,
 {
   fn drop(&mut self) {
     let task_range = self.set_bounds();
-    let one_shifted = one_shifted::<N>(&task_range.start);
+    let one_shifted = one_shifted::<N>(task_range.start & (N - 1));
 
     let queue = self.queue;
 
     for index in task_range {
       unsafe {
-        queue.with_buffer_cell(|cell| (*cell).assume_init_drop(), index);
+        queue.with_buffer_cell(|cell| (*cell).assume_init_drop(), index & (N - 1));
       }
     }
 
@@ -282,42 +251,74 @@ where
   }
 }
 
-unsafe impl<'a, T, const N: usize> Send for UnboundedSlice<'a, T, N> where
+unsafe impl<'a, T, const N: usize> Send for UnboundedRange<'a, T, N> where
   T: Send + Sync + Sized + 'static
 {
 }
-unsafe impl<'a, T, const N: usize> Sync for UnboundedSlice<'a, T, N> where
+unsafe impl<'a, T, const N: usize> Sync for UnboundedRange<'a, T, N> where
   T: Send + Sync + Sized + 'static
 {
 }
 
 /// A guard granting exclusive access over a bounded range of a buffer
-pub struct BoundedSlice<'a, T: Send + Sync + Sized + 'static, const N: usize> {
+pub struct BoundedRange<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   range: Range<usize>,
   queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
 }
 
-impl<'a, T, const N: usize> BoundedSlice<'a, T, N>
+impl<'a, T, const N: usize> BoundedRange<'a, T, N>
 where
   T: Send + Sync + Sized + 'static,
 {
   fn new(range: Range<usize>, queue: RefGuard<'a, Inner<BufferCell<T>, N>>) -> Self {
-    BoundedSlice { range, queue }
+    BoundedRange { range, queue }
   }
 
-  pub fn as_slice(&self) -> &[T] {
-    unsafe { mem::transmute(self.queue.buffer.get_unchecked(self.range.clone())) }
+  pub fn as_slices(&self) -> (&[T], &[T]) {
+    let start = self.range.start & (N - 1);
+    let end = self.range.end & (N - 1);
+
+    if end > start {
+      unsafe {
+        mem::transmute::<(&[BufferCell<T>], &[BufferCell<T>]), _>((
+          self.queue.buffer.get_unchecked(start..end),
+          &[],
+        ))
+      }
+    } else {
+      unsafe {
+        mem::transmute((
+          self.queue.buffer.get_unchecked(start..N),
+          self.queue.buffer.get_unchecked(0..end),
+        ))
+      }
+    }
+  }
+
+  /// An iterator over the assigned task range
+  pub fn tasks(&self) -> impl Iterator<Item = &T> {
+    let tasks = self.as_slices();
+    tasks.0.iter().chain(tasks.1.iter())
   }
 
   pub fn to_vec(self) -> Vec<T> {
-    let items = self.as_slice();
-    let len = items.len();
+    let items = self.as_slices();
+    let front_len = items.0.len();
+    let back_len = items.1.len();
+    let total_len = front_len + back_len;
     let mut buffer = Vec::new();
-    buffer.reserve_exact(len);
+    buffer.reserve_exact(total_len);
 
     unsafe {
-      std::ptr::copy_nonoverlapping(items.as_ptr(), buffer.as_mut_ptr(), len);
-      buffer.set_len(len);
+      std::ptr::copy_nonoverlapping(items.0.as_ptr(), buffer.as_mut_ptr(), front_len);
+      if back_len > 0 {
+        std::ptr::copy_nonoverlapping(
+          items.1.as_ptr(),
+          buffer.as_mut_ptr().add(front_len),
+          back_len,
+        );
+      }
+      buffer.set_len(total_len);
     }
 
     self.deoccupy_buffer();
@@ -331,32 +332,22 @@ where
   #[cfg(not(loom))]
   pub fn with_blocking<F, R>(self, f: F) -> JoinHandle<R>
   where
-    F: for<'b> FnOnce(BoundedSlice<'b, T, N>) -> R + Send + 'static,
+    F: for<'b> FnOnce(BoundedRange<'b, T, N>) -> R + Send + 'static,
     R: Send + 'static,
   {
-    let batch: BoundedSlice<'_, T, N> = unsafe { std::mem::transmute(self) };
+    let batch: BoundedRange<'_, T, N> = unsafe { std::mem::transmute(self) };
     batch.queue.with_blocking(move |_| f(batch))
   }
 
   fn deoccupy_buffer(&self) {
-    self
-      .queue
-      .occupancy
-      .fetch_sub(one_shifted::<N>(&self.range.start), Ordering::Release);
+    self.queue.occupancy.fetch_sub(
+      one_shifted::<N>(self.range.start & (N - 1)),
+      Ordering::Release,
+    );
   }
 }
 
-impl<'a, T, const N: usize> Deref for BoundedSlice<'a, T, N>
-where
-  T: Send + Sync + Sized + 'static,
-{
-  type Target = [T];
-  fn deref(&self) -> &Self::Target {
-    self.as_slice()
-  }
-}
-
-impl<'a, T, const N: usize> Drop for BoundedSlice<'a, T, N>
+impl<'a, T, const N: usize> Drop for BoundedRange<'a, T, N>
 where
   T: Send + Sync + Sized + 'static,
 {
@@ -365,7 +356,7 @@ where
       unsafe {
         self
           .queue
-          .with_buffer_cell(|cell| (*cell).assume_init_drop(), index);
+          .with_buffer_cell(|cell| (*cell).assume_init_drop(), index & (N - 1));
       }
     }
 
@@ -373,18 +364,18 @@ where
   }
 }
 
-unsafe impl<'a, T, const N: usize> Send for BoundedSlice<'a, T, N> where
+unsafe impl<'a, T, const N: usize> Send for BoundedRange<'a, T, N> where
   T: Send + Sync + Sized + 'static
 {
 }
-unsafe impl<'a, T, const N: usize> Sync for BoundedSlice<'a, T, N> where
+unsafe impl<'a, T, const N: usize> Sync for BoundedRange<'a, T, N> where
   T: Send + Sync + Sized + 'static
 {
 }
 
 /// An iterator over an owned range of a buffer
 pub struct BufferIter<'a, T: Send + Sync + Sized + 'static, const N: usize> {
-  current: Option<usize>,
+  current: usize,
   range: Range<usize>,
   queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
 }
@@ -394,10 +385,10 @@ where
   T: Send + Sync + Sized + 'static,
 {
   fn deoccupy_buffer(&self) {
-    self
-      .queue
-      .occupancy
-      .fetch_sub(one_shifted::<N>(&self.range.start), Ordering::Relaxed);
+    self.queue.occupancy.fetch_sub(
+      one_shifted::<N>(self.range.start & (N - 1)),
+      Ordering::Relaxed,
+    );
   }
 }
 
@@ -408,18 +399,14 @@ where
   type Item = T;
 
   fn next(&mut self) -> Option<Self::Item> {
-    if let Some(index) = self.current {
-      self.current = if self.range.end > index {
-        Some(index + 1)
-      } else {
-        None
-      };
-
+    if self.current < self.range.end {
       let task = unsafe {
         self
           .queue
-          .with_buffer_cell(|cell| (*cell).assume_init_read(), index)
+          .with_buffer_cell(|cell| (*cell).assume_init_read(), self.current & (N - 1))
       };
+
+      self.current += 1;
 
       Some(task)
     } else {
@@ -447,7 +434,7 @@ where
   }
 }
 
-impl<'a, T, const N: usize> IntoIterator for BoundedSlice<'a, T, N>
+impl<'a, T, const N: usize> IntoIterator for BoundedRange<'a, T, N>
 where
   T: Send + Sync + Sized + 'static,
 {
@@ -456,7 +443,7 @@ where
 
   fn into_iter(self) -> Self::IntoIter {
     let iter = BufferIter {
-      current: Some(self.range.start),
+      current: self.range.start,
       range: self.range.clone(),
       queue: self.queue,
     };
