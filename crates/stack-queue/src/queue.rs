@@ -93,10 +93,8 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
 /// impl BackgroundQueue for EchoQueue {
 ///   type Task = (usize, oneshot::Sender<usize>);
 ///
-///   async fn batch_process<const N: usize>(tasks: UnboundedSlice<'async_trait, Self::Task, N>) {
-///     let tasks = tasks.into_bounded().to_vec();
-///
-///     for (val, tx) in tasks.into_iter() {
+///   async fn batch_process<const N: usize>(tasks: UnboundedRange<'async_trait, Self::Task, N>) {///
+///     for (val, tx) in tasks.into_bounded().into_iter() {
 ///       tx.send(val).ok();
 ///     }
 ///   }
@@ -129,8 +127,8 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
 ///   type Task = usize;
 /// }
 ///
-/// let sum = Accumulator::batch_reduce(9000, |slice| {
-///   Box::pin(async move { slice.into_bounded().iter().sum::<usize>() })
+/// let sum = Accumulator::batch_reduce(9000, |range| {
+///   Box::pin(async move { range.into_bounded().iter().sum::<usize>() })
 /// }).await;
 /// ```
 
@@ -766,8 +764,8 @@ mod test {
 
     let tasks: FuturesUnordered<_> = (0..10000)
       .map(|i| {
-        MultiSetter::batch_reduce(i, |slice| {
-          Box::pin(async move { slice.into_bounded().tasks().sum::<usize>() })
+        MultiSetter::batch_reduce(i, |range| {
+          Box::pin(async move { range.into_bounded().tasks().sum::<usize>() })
         })
       })
       .collect();

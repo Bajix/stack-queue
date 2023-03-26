@@ -86,6 +86,7 @@ where
     TaskAssignment { task_range, queue }
   }
 
+  /// Returns a pair of slices which contain, in order, the contents of the assigned task range.
   pub fn as_slices(&self) -> (&[TaskRef<T>], &[TaskRef<T>]) {
     let start = self.task_range.start & (N - 1);
     let end = self.task_range.end & (N - 1);
@@ -205,7 +206,7 @@ where
     (self.base_slot >> INDEX_SHIFT)..(end_slot >> INDEX_SHIFT)
   }
 
-  /// Establish a range of exclusive access over a buffer
+  /// Establish exclusive access over a [`StackQueue`](crate::StackQueue) buffer range
   pub fn into_bounded(self) -> BoundedRange<'a, T, N> {
     let range = self.set_bounds();
     let queue = self.queue;
@@ -215,7 +216,7 @@ where
     BoundedRange::new(range, queue)
   }
 
-  /// Move [`UnboundedSlice`] into a thread where blocking is acceptable.
+  /// Move [`UnboundedRange`] into a thread where blocking is acceptable.
   pub fn with_blocking<F, R>(self, f: F) -> JoinHandle<R>
   where
     F: for<'b> FnOnce(UnboundedRange<'b, T, N>) -> R + Send + 'static,
@@ -260,7 +261,8 @@ unsafe impl<'a, T, const N: usize> Sync for UnboundedRange<'a, T, N> where
 {
 }
 
-/// A guard granting exclusive access over a bounded range of a buffer
+/// A guard granting exclusive access over a bounded range of a [`StackQueue`](crate::StackQueue)
+/// buffer
 pub struct BoundedRange<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   range: Range<usize>,
   queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
@@ -274,6 +276,8 @@ where
     BoundedRange { range, queue }
   }
 
+  /// Returns a pair of slices which contain, in order, the contents of the owned range from a
+  /// [`StackQueue`](crate::StackQueue) buffer.
   pub fn as_slices(&self) -> (&[T], &[T]) {
     let start = self.range.start & (N - 1);
     let end = self.range.end & (N - 1);
@@ -295,7 +299,7 @@ where
     }
   }
 
-  /// An iterator over the assigned task range
+  /// An iterator over the owned task range
   pub fn tasks(&self) -> impl Iterator<Item = &T> {
     let tasks = self.as_slices();
     tasks.0.iter().chain(tasks.1.iter())
@@ -328,7 +332,7 @@ where
     buffer
   }
 
-  /// Move [`BoundedSlice`] into a thread where blocking is acceptable.
+  /// Move [`BoundedRange`] into a thread where blocking is acceptable.
   #[cfg(not(loom))]
   pub fn with_blocking<F, R>(self, f: F) -> JoinHandle<R>
   where
@@ -373,7 +377,7 @@ unsafe impl<'a, T, const N: usize> Sync for BoundedRange<'a, T, N> where
 {
 }
 
-/// An iterator over an owned range of a buffer
+/// An iterator over an owned range of tasks from a [`StackQueue`](crate::StackQueue) buffer
 pub struct BufferIter<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   current: usize,
   range: Range<usize>,
