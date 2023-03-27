@@ -765,7 +765,7 @@ mod test {
     let tasks: FuturesUnordered<_> = (0..10000)
       .map(|i| {
         MultiSetter::batch_reduce(i, |range| {
-          Box::pin(async move { range.into_bounded().tasks().sum::<usize>() })
+          Box::pin(async move { range.into_bounded().iter().sum::<usize>() })
         })
       })
       .collect();

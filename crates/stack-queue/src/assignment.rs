@@ -300,7 +300,7 @@ where
   }
 
   /// An iterator over the owned task range
-  pub fn tasks(&self) -> impl Iterator<Item = &T> {
+  pub fn iter(&self) -> impl Iterator<Item = &T> {
     let tasks = self.as_slices();
     tasks.0.iter().chain(tasks.1.iter())
   }
