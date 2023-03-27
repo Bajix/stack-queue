@@ -7,7 +7,7 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug unit tests in library 'stack-queue'",
+      "name": "Debug 'stack-queue'",
       "cargo": {
         "args": [
           "test",
@@ -26,17 +26,20 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug benchmark 'benchmarks'",
+      "name": "Debug 'stack-queue' with loom",
       "cargo": {
         "args": [
           "test",
           "--no-run",
-          "--bench=benchmarks",
+          "--lib",
           "--package=stack-queue"
         ],
         "filter": {
-          "name": "benchmarks",
-          "kind": "bench"
+          "name": "stack-queue",
+          "kind": "lib"
+        },
+        "env": {
+          "RUSTFLAGS": "--cfg loom"
         }
       },
       "args": [],
