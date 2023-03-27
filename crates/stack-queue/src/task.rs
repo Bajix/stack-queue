@@ -3,35 +3,33 @@ use std::{
   cell::UnsafeCell,
   fmt,
   fmt::Debug,
+  future::Future,
   hint::unreachable_unchecked,
   ops::Deref,
+  ptr::addr_of,
   sync::atomic::{AtomicUsize, Ordering},
+  task::{Context, Poll},
   thread::yield_now,
 };
-use std::{
-  future::Future,
-  marker::PhantomPinned,
-  mem::MaybeUninit,
-  pin::Pin,
-  ptr::addr_of,
-  task::{Context, Poll, Waker},
-};
+use std::{marker::PhantomPinned, mem::MaybeUninit, pin::Pin, task::Waker};
 
 #[cfg(feature = "diesel-associations")]
 use diesel::associations::BelongsTo;
 #[cfg(loom)]
 use loom::{
   cell::UnsafeCell,
-  hint::unreachable_unchecked,
   sync::atomic::{AtomicUsize, Ordering},
   thread::yield_now,
 };
 use pin_project::{pin_project, pinned_drop};
 #[cfg(feature = "redis-args")]
 use redis::{RedisWrite, ToRedisArgs};
+#[cfg(not(loom))]
 use tokio::task::spawn;
 
-use crate::queue::{LocalQueue, QueueFull, TaskQueue};
+#[cfg(not(loom))]
+use crate::queue::QueueFull;
+use crate::queue::{LocalQueue, TaskQueue};
 
 pub(crate) const SETTING_VALUE: usize = 1 << 0;
 pub(crate) const VALUE_SET: usize = 1 << 1;
@@ -346,6 +344,7 @@ where
   }
 }
 
+#[cfg(not(loom))]
 impl<T, const N: usize> Future for AutoBatchedTask<T, N>
 where
   T: TaskQueue,

@@ -5,6 +5,7 @@ use std::{marker::PhantomData, mem, ops::Range};
 use async_local::RefGuard;
 #[cfg(loom)]
 use loom::sync::atomic::{fence, Ordering};
+#[cfg(not(loom))]
 use tokio::task::{spawn_blocking, JoinHandle};
 
 use crate::{
@@ -48,6 +49,7 @@ where
   }
 
   /// Move [`PendingAssignment`] into a thread where blocking is acceptable.
+  #[cfg(not(loom))]
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
   where
     F: for<'b> FnOnce(PendingAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
@@ -151,6 +153,7 @@ where
   }
 
   /// Move [`TaskAssignment`] into a thread where blocking is acceptable
+  #[cfg(not(loom))]
   pub async fn with_blocking<F>(self, f: F) -> CompletionReceipt<T>
   where
     F: for<'b> FnOnce(TaskAssignment<'b, T, N>) -> CompletionReceipt<T> + Send + 'static,
@@ -217,6 +220,7 @@ where
   }
 
   /// Move [`UnboundedRange`] into a thread where blocking is acceptable.
+  #[cfg(not(loom))]
   pub fn with_blocking<F, R>(self, f: F) -> JoinHandle<R>
   where
     F: for<'b> FnOnce(UnboundedRange<'b, T, N>) -> R + Send + 'static,
@@ -278,6 +282,7 @@ where
 
   /// Returns a pair of slices which contain, in order, the contents of the owned range from a
   /// [`StackQueue`](crate::StackQueue) buffer.
+  #[cfg(not(loom))]
   pub fn as_slices(&self) -> (&[T], &[T]) {
     let start = self.range.start & (N - 1);
     let end = self.range.end & (N - 1);
@@ -300,11 +305,13 @@ where
   }
 
   /// An iterator over the owned task range
+  #[cfg(not(loom))]
   pub fn iter(&self) -> impl Iterator<Item = &T> {
     let tasks = self.as_slices();
     tasks.0.iter().chain(tasks.1.iter())
   }
 
+  #[cfg(not(loom))]
   pub fn to_vec(self) -> Vec<T> {
     let items = self.as_slices();
     let front_len = items.0.len();

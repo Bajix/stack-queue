@@ -22,6 +22,7 @@ use loom::{
   sync::atomic::{AtomicUsize, Ordering},
   thread::LocalKey,
 };
+#[cfg(not(loom))]
 use tokio::task::{spawn, yield_now};
 
 use crate::{
@@ -107,6 +108,7 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
   #[allow(clippy::needless_lifetimes)]
   async fn batch_process<const N: usize>(tasks: UnboundedRange<'async_trait, Self::Task, N>);
 
+  #[cfg(not(loom))]
   fn auto_batch<const N: usize>(task: Self::Task)
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
@@ -476,6 +478,7 @@ where
     }
   }
 
+  #[cfg(not(loom))]
   fn background_process<Q>(task: T)
   where
     Q: BackgroundQueue<Task = T> + LocalQueue<N, BufferCell = BufferCell<T>>,
