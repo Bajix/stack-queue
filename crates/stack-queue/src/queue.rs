@@ -534,7 +534,7 @@ mod test {
 
   struct EchoQueue;
 
-  #[local_queue]
+  #[local_queue(buffer_size = 64)]
   impl TaskQueue for EchoQueue {
     type Task = usize;
     type Value = usize;
@@ -568,7 +568,7 @@ mod test {
   struct SlowQueue;
 
   #[cfg(not(loom))]
-  #[local_queue]
+  #[local_queue(buffer_size = 64)]
   impl TaskQueue for SlowQueue {
     type Task = usize;
     type Value = usize;
@@ -603,7 +603,7 @@ mod test {
   struct YieldQueue;
 
   #[cfg(not(loom))]
-  #[local_queue]
+  #[local_queue(buffer_size = 64)]
   impl TaskQueue for YieldQueue {
     type Task = usize;
     type Value = usize;

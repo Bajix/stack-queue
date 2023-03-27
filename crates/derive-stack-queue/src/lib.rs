@@ -3,7 +3,7 @@ use proc_macro2::Span;
 use quote::quote;
 use syn::{parse::Error, parse_macro_input, AttributeArgs, ImplItem, ItemImpl};
 
-const MIN_BUFFER_LEN: usize = 256;
+const MIN_BUFFER_LEN: usize = 64;
 
 #[cfg(target_pointer_width = "64")]
 const MAX_BUFFER_LEN: usize = u32::MAX as usize;

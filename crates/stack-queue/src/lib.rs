@@ -10,7 +10,7 @@ pub extern crate async_t;
 #[cfg(loom)]
 pub extern crate loom;
 
-const MIN_BUFFER_LEN: usize = 256;
+const MIN_BUFFER_LEN: usize = 64;
 
 #[cfg(target_pointer_width = "64")]
 const MAX_BUFFER_LEN: usize = u32::MAX as usize;
