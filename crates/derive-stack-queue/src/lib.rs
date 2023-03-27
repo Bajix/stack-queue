@@ -154,7 +154,7 @@ pub fn local_queue(
           F: for<'a> FnOnce(stack_queue::assignment::UnboundedRange<'a, #task, N>) -> std::pin::Pin<Box<dyn std::future::Future<Output = R> + Send + 'a>> + Send,
         {
           loop {
-            match <Self as stack_queue::LocalQueue<N>>::queue().with(|queue| unsafe { queue.push::<Self>(task) }) {
+            match <Self as stack_queue::LocalQueue<N>>::queue().with(|queue| unsafe { queue.push(task) }) {
               Ok(Some(batch)) => {
                 tokio::task::yield_now().await;
                 break Some(f(batch).await);

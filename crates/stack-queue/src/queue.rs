@@ -442,10 +442,7 @@ where
   T: Send + Sync + Sized + 'static,
 {
   #[doc(hidden)]
-  pub unsafe fn push<'a, Q>(&self, task: T) -> Result<Option<UnboundedRange<'a, T, N>>, T>
-  where
-    Q: LocalQueue<N, BufferCell = BufferCell<T>>,
-  {
+  pub unsafe fn push<'a>(&self, task: T) -> Result<Option<UnboundedRange<'a, T, N>>, T> {
     let write_index = self.current_write_index();
 
     // Regions sizes are always a power of 2, and so this acts as an optimized modulus operation
@@ -473,7 +470,7 @@ where
     } else {
       self.occupy_region(write_index);
 
-      let queue = unsafe { Q::queue().guarded_ref() };
+      let queue = unsafe { self.inner.guarded_ref() };
 
       Ok(Some(UnboundedRange::new(base_slot, queue)))
     }
@@ -483,7 +480,7 @@ where
   where
     Q: BackgroundQueue<Task = T> + LocalQueue<N, BufferCell = BufferCell<T>>,
   {
-    Q::queue().with(|queue| match unsafe { queue.push::<Q>(task) } {
+    Q::queue().with(|queue| match unsafe { queue.push(task) } {
       Ok(Some(assignment)) => {
         spawn(async move {
           Q::batch_process::<N>(assignment).await;
@@ -493,7 +490,7 @@ where
       Err(mut task) => {
         spawn(async move {
           loop {
-            task = match Q::queue().with(|queue| unsafe { queue.push::<Q>(task) }) {
+            task = match Q::queue().with(|queue| unsafe { queue.push(task) }) {
               Ok(Some(assignment)) => {
                 Q::batch_process::<N>(assignment).await;
                 return;
