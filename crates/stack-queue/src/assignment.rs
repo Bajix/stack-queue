@@ -1,10 +1,10 @@
 #[cfg(not(loom))]
-use std::sync::atomic::{fence, Ordering};
+use std::sync::atomic::Ordering;
 use std::{marker::PhantomData, mem, ops::Range};
 
 use async_local::RefGuard;
 #[cfg(loom)]
-use loom::sync::atomic::{fence, Ordering};
+use loom::sync::atomic::Ordering;
 #[cfg(not(loom))]
 use tokio::task::{spawn_blocking, JoinHandle};
 
@@ -140,7 +140,7 @@ where
   fn deoccupy_buffer(&self) {
     self.queue.occupancy.fetch_sub(
       one_shifted::<N>(self.task_range.start & (N - 1)),
-      Ordering::Relaxed,
+      Ordering::Release,
     );
   }
 
@@ -247,12 +247,10 @@ where
       }
     }
 
-    fence(Ordering::Release);
-
     self
       .queue
       .occupancy
-      .fetch_sub(one_shifted, Ordering::Relaxed);
+      .fetch_sub(one_shifted, Ordering::Release);
   }
 }
 
@@ -398,7 +396,7 @@ where
   fn deoccupy_buffer(&self) {
     self.queue.occupancy.fetch_sub(
       one_shifted::<N>(self.range.start & (N - 1)),
-      Ordering::Relaxed,
+      Ordering::Release,
     );
   }
 }

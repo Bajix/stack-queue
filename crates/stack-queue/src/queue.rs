@@ -352,7 +352,7 @@ where
     }
 
     // Usually this slow path won't occur because occupancy syncs when new batches are created
-    let occupancy = self.inner.occupancy.load(Ordering::Relaxed);
+    let occupancy = self.inner.occupancy.load(Ordering::Acquire);
     let regional_occupancy = occupancy.bitand(region_mask);
 
     unsafe {
@@ -374,7 +374,7 @@ where
     let occupancy = self
       .inner
       .occupancy
-      .fetch_add(shifted_add, Ordering::Relaxed)
+      .fetch_add(shifted_add, Ordering::AcqRel)
       .wrapping_add(shifted_add);
 
     unsafe {
@@ -654,6 +654,35 @@ mod test {
     loom::model(|| {
       let queue: StackQueue<BufferCell<usize>, 64> = StackQueue::default();
       drop(queue);
+    });
+  }
+
+  #[cfg(loom)]
+  #[test]
+  fn the_occupancy_model_synchronizes() {
+    use loom::{
+      sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+      },
+      thread,
+    };
+
+    loom::model(|| {
+      let occupancy = Arc::new(AtomicUsize::new(0));
+
+      assert_eq!(occupancy.fetch_add(1, Ordering::AcqRel), 0);
+
+      {
+        let occupancy = occupancy.clone();
+        thread::spawn(move || {
+          occupancy.fetch_sub(1, Ordering::Release);
+        })
+      }
+      .join()
+      .unwrap();
+
+      assert_eq!(occupancy.load(Ordering::Acquire), 0);
     });
   }
 
