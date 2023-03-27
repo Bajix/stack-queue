@@ -547,12 +547,12 @@ mod test {
   }
 
   #[cfg(not(loom))]
-  #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
+  #[cfg_attr(not(loom), tokio::test(crate = "async_local"))]
 
   async fn it_process_tasks() {
-    let batch: Vec<usize> = join_all((0..100).map(EchoQueue::auto_batch)).await;
+    let batch: Vec<usize> = join_all((0..1000).map(EchoQueue::auto_batch)).await;
 
-    assert_eq!(batch, (0..100).collect::<Vec<usize>>());
+    assert_eq!(batch, (0..1000).collect::<Vec<usize>>());
   }
 
   #[cfg(not(loom))]
@@ -644,6 +644,58 @@ mod test {
       .collect();
 
     tasks.collect::<Vec<_>>().await;
+  }
+
+  #[cfg(loom)]
+  #[test]
+  fn stack_queue_drops() {
+    use crate::{BufferCell, StackQueue};
+
+    loom::model(|| {
+      let queue: StackQueue<BufferCell<usize>, 64> = StackQueue::default();
+      drop(queue);
+    });
+  }
+
+  #[cfg(loom)]
+  #[test]
+  fn it_manages_occupancy() {
+    use crate::{queue::UnboundedRange, BufferCell, StackQueue};
+
+    let expected_total = (0..256).into_iter().sum::<usize>();
+
+    loom::model(move || {
+      let queue: StackQueue<BufferCell<usize>, 64> = StackQueue::default();
+      let mut batch: Option<UnboundedRange<usize, 64>> = None;
+      let mut i = 0;
+      let mut total = 0;
+
+      while i < 256 {
+        match unsafe { queue.push(i) } {
+          Ok(Some(unbounded_batch)) => {
+            batch = Some(unbounded_batch);
+            i += 1;
+          }
+          Ok(None) => {
+            i += 1;
+          }
+          Err(_) => {
+            if let Some(batch) = batch.take() {
+              total += batch.into_bounded().into_iter().sum::<usize>();
+            } else {
+              panic!("queue full despite buffer unoccupied");
+            }
+            continue;
+          }
+        }
+      }
+
+      if let Some(batch) = batch.take() {
+        total += batch.into_bounded().into_iter().sum::<usize>();
+      }
+
+      assert_eq!(total, expected_total);
+    });
   }
 
   #[cfg(loom)]
