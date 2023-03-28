@@ -518,7 +518,7 @@ mod test {
   use std::{thread, time::Duration};
 
   #[cfg(not(loom))]
-  use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
+  use futures::{stream::FuturesUnordered, StreamExt};
   #[cfg(not(loom))]
   use tokio::{
     sync::{oneshot, Barrier},
@@ -550,9 +550,30 @@ mod test {
   #[cfg_attr(not(loom), tokio::test(crate = "async_local"))]
 
   async fn it_process_tasks() {
-    let batch: Vec<usize> = join_all((0..1000).map(EchoQueue::auto_batch)).await;
+    use rand::{distributions::Standard, prelude::*};
+    let mut rng = rand::thread_rng();
 
-    assert_eq!(batch, (0..1000).collect::<Vec<usize>>());
+    let seed: Vec<usize> = (&mut rng).sample_iter(Standard).take(65536).collect();
+
+    let expected_total: u128 = seed
+      .iter()
+      .fold(0, |total, val| total.wrapping_add(*val as u128));
+
+    let mut seed = seed.into_iter();
+    let mut total: u128 = 0;
+
+    while seed.len().gt(&0) {
+      let mut tasks: FuturesUnordered<_> = (&mut seed)
+        .take(rng.gen_range(0..4096))
+        .map(EchoQueue::auto_batch)
+        .collect();
+
+      while let Some(val) = tasks.next().await {
+        total = total.wrapping_add(val as u128);
+      }
+    }
+
+    assert_eq!(total, expected_total);
   }
 
   #[cfg(not(loom))]
