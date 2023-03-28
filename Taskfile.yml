@@ -9,6 +9,8 @@ sources:
 tasks:
   default:
     cmds:
+      - task: check-tests
+      - task: check-loom
       - task: clippy-tests
       - task: test-address-sanitizer
       - task: test-loom
