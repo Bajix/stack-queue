@@ -12,14 +12,14 @@ pub(crate) const REGION_COUNT: usize = 4;
 #[inline(always)]
 #[cfg(target_pointer_width = "64")]
 pub(crate) const fn region_size<const N: usize>() -> usize {
-  N << 3
+  N >> 3
 }
 
 /// 4 regions, 8 bits per region
 #[inline(always)]
 #[cfg(target_pointer_width = "32")]
 pub(crate) const fn region_size<const N: usize>() -> usize {
-  N << 2
+  N >> 2
 }
 
 /// Number of bits necessary to bitwise shift index into region
