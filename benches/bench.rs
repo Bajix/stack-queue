@@ -6,16 +6,17 @@ use std::{
 };
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
+use futures::{stream::FuturesUnordered, StreamExt};
 use stack_queue::{
   assignment::{CompletionReceipt, PendingAssignment, UnboundedRange},
-  local_queue, BackgroundQueue, TaskQueue,
+  local_queue, BackgroundQueue, BatchReducer, ReducerExt, TaskQueue,
 };
 use tokio::{runtime::Builder, sync::oneshot};
 
 #[global_allocator]
 static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
-pub struct AssignmentTimeQueue;
+struct AssignmentTimeQueue;
 
 #[local_queue]
 impl TaskQueue for AssignmentTimeQueue {
@@ -33,7 +34,7 @@ impl TaskQueue for AssignmentTimeQueue {
   }
 }
 
-pub struct EnqueueTimeQueue;
+struct EnqueueTimeQueue;
 
 #[local_queue]
 impl TaskQueue for EnqueueTimeQueue {
@@ -50,7 +51,7 @@ impl TaskQueue for EnqueueTimeQueue {
   }
 }
 
-pub struct ReceiveTimeQueue;
+struct ReceiveTimeQueue;
 
 #[local_queue]
 impl TaskQueue for ReceiveTimeQueue {
@@ -67,7 +68,7 @@ impl TaskQueue for ReceiveTimeQueue {
   }
 }
 
-pub struct BackgroundTimerQueue;
+struct BackgroundTimerQueue;
 
 #[local_queue]
 impl BackgroundQueue for BackgroundTimerQueue {
@@ -81,6 +82,13 @@ impl BackgroundQueue for BackgroundTimerQueue {
       tx.send(collected_at.duration_since(enqueued_at)).unwrap();
     });
   }
+}
+
+struct Accumulator;
+
+#[local_queue]
+impl BatchReducer for Accumulator {
+  type Task = usize;
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
@@ -213,6 +221,32 @@ fn criterion_benchmark(c: &mut Criterion) {
           }
 
           total
+        })
+      },
+    );
+
+    batching_benches.bench_with_input(
+      BenchmarkId::new("ReduceExt::batch_reduce", batch_size),
+      &batch_size,
+      |b, batch_size| {
+        b.to_async(&rt).iter(|| {
+          (0..*batch_size)
+            .map(|i| Accumulator::batch_reduce(i as usize, |iter| iter.sum::<usize>()))
+            .collect::<FuturesUnordered<_>>()
+            .collect::<Vec<_>>()
+        })
+      },
+    );
+
+    batching_benches.bench_with_input(
+      BenchmarkId::new("ReduceExt::batch_collect", batch_size),
+      &batch_size,
+      |b, batch_size| {
+        b.to_async(&rt).iter(|| {
+          (0..*batch_size)
+            .map(|i| Accumulator::batch_collect(i as usize))
+            .collect::<FuturesUnordered<_>>()
+            .collect::<Vec<_>>()
         })
       },
     );
