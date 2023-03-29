@@ -11,7 +11,7 @@ Impl one of the following while using the [local_queue](https://docs.rs/stack-qu
 
 * [`TaskQueue`](https://docs.rs/stack-queue/latest/stack_queue/trait.TaskQueue.html), for batching with per-task receivers
 * [`BackgroundQueue`](https://docs.rs/stack-queue/latest/stack_queue/trait.BackgroundQueue.html), for background processsing task batches without receivers
-* [`BatchReducer`](https://docs.rs/stack-queue/latest/stack_queue/trait.BatchReducer.html), for using closures to reduce over batched data
+* [`BatchReducer`](https://docs.rs/stack-queue/latest/stack_queue/trait.BatchReducer.html), for collecting or reducing batched data
 
 ## Optimal Runtime Configuration
 

@@ -190,7 +190,8 @@ where
     CompletionReceipt(PhantomData)
   }
 }
-/// A guard granting exclusive access over an unbounded range of a buffer
+/// A guard granting exclusive access over an unbounded range of a [`StackQueue`](crate::StackQueue)
+/// buffer
 pub struct UnboundedRange<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   base_slot: usize,
   queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
@@ -278,8 +279,7 @@ where
     BoundedRange { range, queue }
   }
 
-  /// Returns a pair of slices which contain, in order, the contents of the owned range from a
-  /// [`StackQueue`](crate::StackQueue) buffer.
+  /// Returns a pair of slices which contain, in order, the contents of the guarded task range.
   #[cfg(not(loom))]
   pub fn as_slices(&self) -> (&[T], &[T]) {
     let start = self.range.start & (N - 1);
@@ -302,7 +302,7 @@ where
     }
   }
 
-  /// An iterator over the owned task range
+  /// An iterator over the guarded task range
   #[cfg(not(loom))]
   pub fn iter(&self) -> impl Iterator<Item = &T> {
     let tasks = self.as_slices();
@@ -382,7 +382,7 @@ unsafe impl<'a, T, const N: usize> Sync for BoundedRange<'a, T, N> where
 {
 }
 
-/// An iterator over an owned range of tasks from a [`StackQueue`](crate::StackQueue) buffer
+/// An iterator over a guarded range of tasks from a [`StackQueue`](crate::StackQueue) buffer
 pub struct BufferIter<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   current: usize,
   range: Range<usize>,

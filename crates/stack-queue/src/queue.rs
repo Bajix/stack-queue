@@ -144,7 +144,7 @@ pub trait ReducerExt: Send + Sync + Sized + 'static {
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
     F: for<'a> FnOnce(BufferIter<'a, Self::Task, N>) -> R + Send;
 
-  /// Collect tasks
+  /// Collect tasks batched in an async context
   async fn batch_collect<const N: usize>(task: Self::Task) -> Option<Vec<Self::Task>>
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>;
