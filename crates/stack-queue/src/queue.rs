@@ -904,7 +904,7 @@ mod test {
   #[cfg(not(loom))]
   #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
   async fn it_batch_reduces() {
-    use crate::ReducerExt;
+    use crate::{BatchReducer, ReducerExt};
 
     struct Accumulator;
 
@@ -929,7 +929,7 @@ mod test {
   #[cfg(not(loom))]
   #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
   async fn it_batch_collects() {
-    use crate::ReducerExt;
+    use crate::{BatchReducer, ReducerExt};
 
     struct Accumulator;
 

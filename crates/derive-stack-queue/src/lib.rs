@@ -144,7 +144,7 @@ pub fn local_queue(
       #input
     ),
     Variant::BatchReducer => quote!(
-      impl stack_queue::BatchReducer for #ident {
+      impl BatchReducer for #ident {
         type Task = #task;
       }
     ),
