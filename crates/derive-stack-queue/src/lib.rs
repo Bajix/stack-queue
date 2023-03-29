@@ -144,29 +144,8 @@ pub fn local_queue(
       #input
     ),
     Variant::BatchReducer => quote!(
-      #[stack_queue::async_t::async_trait]
       impl stack_queue::BatchReducer for #ident {
         type Task = #task;
-
-        async fn batch_reduce<const N: usize, F, R>(mut task: Self::Task, f: F) -> Option<R>
-        where
-          Self: stack_queue::LocalQueue<N, BufferCell = stack_queue::BufferCell<#task>>,
-          F: for<'a> FnOnce(stack_queue::assignment::UnboundedRange<'a, #task, N>) -> std::pin::Pin<Box<dyn std::future::Future<Output = R> + Send + 'a>> + Send,
-        {
-          loop {
-            match <Self as stack_queue::LocalQueue<N>>::queue().with(|queue| unsafe { queue.push(task) }) {
-              Ok(Some(batch)) => {
-                tokio::task::yield_now().await;
-                break Some(f(batch).await);
-              }
-              Ok(None) => break None,
-              Err(value) => {
-                task = value;
-                tokio::task::yield_now().await;
-              }
-            }
-          }
-        }
       }
     ),
   };

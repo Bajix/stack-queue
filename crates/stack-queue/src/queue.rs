@@ -117,7 +117,7 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
   }
 }
 
-/// Auto-batched queue whereby batches are reduced by a closure
+/// Auto-batched queue whereby tasks are reduced or collected
 ///
 /// # Example
 ///
@@ -133,12 +133,16 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
 ///   Box::pin(async move { range.into_bounded().iter().sum::<usize>() })
 /// }).await;
 /// ```
-
-#[async_trait]
 pub trait BatchReducer: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
+}
 
-  /// Enqueue and auto-batch task, using reducer fn once per batch. The [`local_queue`](https://docs.rs/stack-queue/latest/stack_queue/attr.local_queue.html) macro will implement batch_reduce
+/// Extension trait for types that impl [`BatchReducer`]
+#[async_trait]
+pub trait ReducerExt: Send + Sync + Sized + 'static {
+  type Task: Send + Sync + Sized + 'static;
+
+  /// Enqueue and auto-batch task, using reducer fn once per batch
   async fn batch_reduce<const N: usize, F, R>(task: Self::Task, f: F) -> Option<R>
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
@@ -146,9 +150,66 @@ pub trait BatchReducer: Send + Sync + Sized + 'static {
         UnboundedRange<'a, Self::Task, N>,
       ) -> Pin<Box<dyn Future<Output = R> + Send + 'a>>
       + Send;
+
+  /// Collect into batches
+  async fn batch_collect<const N: usize>(task: Self::Task) -> Option<Vec<Self::Task>>
+  where
+    Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>;
 }
 
-/// Thread local context for enqueuing tasks on a [`StackQueue`]
+#[cfg(not(loom))]
+#[async_trait]
+impl<T> ReducerExt for T
+where
+  T: BatchReducer,
+{
+  type Task = <T as BatchReducer>::Task;
+
+  async fn batch_reduce<const N: usize, F, R>(mut task: Self::Task, f: F) -> Option<R>
+  where
+    Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
+    F: for<'a> FnOnce(
+        UnboundedRange<'a, Self::Task, N>,
+      ) -> Pin<Box<dyn Future<Output = R> + Send + 'a>>
+      + Send,
+  {
+    loop {
+      match <Self as stack_queue::LocalQueue<N>>::queue().with(|queue| unsafe { queue.push(task) })
+      {
+        Ok(Some(batch)) => {
+          tokio::task::yield_now().await;
+          break Some(f(batch).await);
+        }
+        Ok(None) => break None,
+        Err(value) => {
+          task = value;
+          tokio::task::yield_now().await;
+        }
+      }
+    }
+  }
+
+  async fn batch_collect<const N: usize>(mut task: Self::Task) -> Option<Vec<Self::Task>>
+  where
+    Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
+  {
+    loop {
+      match <Self as LocalQueue<N>>::queue().with(|queue| unsafe { queue.push(task) }) {
+        Ok(Some(batch)) => {
+          tokio::task::yield_now().await;
+          break Some(batch.into_bounded().to_vec());
+        }
+        Ok(None) => break None,
+        Err(value) => {
+          task = value;
+          tokio::task::yield_now().await;
+        }
+      }
+    }
+  }
+}
+
+/// Thread local context for enqueuing tasks on [`StackQueue`]
 pub trait LocalQueue<const N: usize> {
   type BufferCell: Send + Sync + Sized + 'static;
 
@@ -443,8 +504,7 @@ impl<T, const N: usize> StackQueue<BufferCell<T>, N>
 where
   T: Send + Sync + Sized + 'static,
 {
-  #[doc(hidden)]
-  pub unsafe fn push<'a>(&self, task: T) -> Result<Option<UnboundedRange<'a, T, N>>, T> {
+  pub(crate) unsafe fn push<'a>(&self, task: T) -> Result<Option<UnboundedRange<'a, T, N>>, T> {
     let write_index = self.current_write_index();
 
     // Regions sizes are always a power of 2, and so this acts as an optimized modulus operation
@@ -853,20 +913,19 @@ mod test {
 
   #[cfg(not(loom))]
   #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
-
   async fn it_batch_reduces() {
-    use crate::BatchReducer;
+    use crate::ReducerExt;
 
-    struct MultiSetter;
+    struct Accumulator;
 
     #[local_queue]
-    impl BatchReducer for MultiSetter {
+    impl BatchReducer for Accumulator {
       type Task = usize;
     }
 
     let tasks: FuturesUnordered<_> = (0..10000)
       .map(|i| {
-        MultiSetter::batch_reduce(i, |range| {
+        Accumulator::batch_reduce(i, |range| {
           Box::pin(async move { range.into_bounded().iter().sum::<usize>() })
         })
       })
@@ -877,6 +936,29 @@ mod test {
         total + value.unwrap_or_default()
       })
       .await;
+
+    assert_eq!(total, (0..10000).sum());
+  }
+
+  #[cfg(not(loom))]
+  #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
+  async fn it_batch_collects() {
+    use crate::ReducerExt;
+
+    struct Accumulator;
+
+    #[local_queue]
+    impl BatchReducer for Accumulator {
+      type Task = usize;
+    }
+
+    let mut tasks: FuturesUnordered<_> = (0..10000).map(Accumulator::batch_collect).collect();
+
+    let mut total = 0;
+
+    while let Some(batch) = tasks.next().await {
+      total += batch.map_or(0, |batch| batch.into_iter().sum::<usize>());
+    }
 
     assert_eq!(total, (0..10000).sum());
   }
