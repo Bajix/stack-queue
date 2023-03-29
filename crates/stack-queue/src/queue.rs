@@ -1,10 +1,8 @@
 use std::{
   array,
   fmt::Debug,
-  future::Future,
   mem::MaybeUninit,
   ops::{BitAnd, Deref},
-  pin::Pin,
 };
 #[cfg(not(loom))]
 use std::{
@@ -26,7 +24,7 @@ use loom::{
 use tokio::task::{spawn, yield_now};
 
 use crate::{
-  assignment::{CompletionReceipt, PendingAssignment, UnboundedRange},
+  assignment::{BufferIter, CompletionReceipt, PendingAssignment, UnboundedRange},
   helpers::*,
   task::{AutoBatchedTask, Receiver, TaskRef},
   MAX_BUFFER_LEN, MIN_BUFFER_LEN,
@@ -129,9 +127,7 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
 ///   type Task = usize;
 /// }
 ///
-/// let sum = Accumulator::batch_reduce(9000, |range| {
-///   Box::pin(async move { range.into_bounded().iter().sum::<usize>() })
-/// }).await;
+/// let sum: Option<usize> = Accumulator::batch_reduce(9000, |batch| batch.sum::<usize>()).await;
 /// ```
 pub trait BatchReducer: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
@@ -142,16 +138,13 @@ pub trait BatchReducer: Send + Sync + Sized + 'static {
 pub trait ReducerExt: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
 
-  /// Enqueue and auto-batch task, using reducer fn once per batch
+  /// Reduce over tasks batched in an async context
   async fn batch_reduce<const N: usize, F, R>(task: Self::Task, f: F) -> Option<R>
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
-    F: for<'a> FnOnce(
-        UnboundedRange<'a, Self::Task, N>,
-      ) -> Pin<Box<dyn Future<Output = R> + Send + 'a>>
-      + Send;
+    F: for<'a> FnOnce(BufferIter<'a, Self::Task, N>) -> R + Send;
 
-  /// Collect into batches
+  /// Collect tasks
   async fn batch_collect<const N: usize>(task: Self::Task) -> Option<Vec<Self::Task>>
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>;
@@ -168,17 +161,14 @@ where
   async fn batch_reduce<const N: usize, F, R>(mut task: Self::Task, f: F) -> Option<R>
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
-    F: for<'a> FnOnce(
-        UnboundedRange<'a, Self::Task, N>,
-      ) -> Pin<Box<dyn Future<Output = R> + Send + 'a>>
-      + Send,
+    F: for<'a> FnOnce(BufferIter<'a, Self::Task, N>) -> R + Send,
   {
     loop {
       match <Self as stack_queue::LocalQueue<N>>::queue().with(|queue| unsafe { queue.push(task) })
       {
         Ok(Some(batch)) => {
           tokio::task::yield_now().await;
-          break Some(f(batch).await);
+          break Some(f(batch.into_bounded().into_iter()));
         }
         Ok(None) => break None,
         Err(value) => {
@@ -924,11 +914,7 @@ mod test {
     }
 
     let tasks: FuturesUnordered<_> = (0..10000)
-      .map(|i| {
-        Accumulator::batch_reduce(i, |range| {
-          Box::pin(async move { range.into_bounded().iter().sum::<usize>() })
-        })
-      })
+      .map(|i| Accumulator::batch_reduce(i, |iter| iter.sum::<usize>()))
       .collect();
 
     let total = tasks
