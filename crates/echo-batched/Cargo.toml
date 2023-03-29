@@ -15,7 +15,6 @@ crossbeam-deque = "0.8"
 flume = "0.10"
 futures = "0.3"
 stack-queue = { path = "../stack-queue", features = ["barrier-protected-runtime"] }
-swap-queue = "1.1.0"
 tokio = { version = "1", features = ["rt", "macros", "time"] }
 
 [dev-dependencies]

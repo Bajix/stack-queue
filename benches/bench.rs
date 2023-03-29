@@ -218,15 +218,6 @@ fn criterion_benchmark(c: &mut Criterion) {
     );
 
     batching_benches.bench_with_input(
-      BenchmarkId::new("swap-queue", batch_size),
-      &batch_size,
-      |b, batch_size| {
-        b.to_async(&rt)
-          .iter(|| echo_batched::swap_queue::bench_batching(batch_size))
-      },
-    );
-
-    batching_benches.bench_with_input(
       BenchmarkId::new("tokio::mpsc", batch_size),
       &batch_size,
       |b, batch_size| {
