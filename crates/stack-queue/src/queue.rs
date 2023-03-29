@@ -287,13 +287,13 @@ where
   Inner<T, N>: Default,
 {
   fn default() -> Self {
-    assert_eq!(
+    debug_assert_eq!(
       N,
       N.next_power_of_two(),
       "StackQueue buffer size must be power of 2"
     );
-    assert!(N >= MIN_BUFFER_LEN);
-    assert!(N <= MAX_BUFFER_LEN);
+    debug_assert!(N >= MIN_BUFFER_LEN);
+    debug_assert!(N <= MAX_BUFFER_LEN);
 
     StackQueue {
       slot: CachePadded::new(UnsafeCell::new(PHASE)),
