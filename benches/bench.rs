@@ -6,7 +6,7 @@ use std::{
 };
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::future::join_all;
 use stack_queue::{
   assignment::{CompletionReceipt, PendingAssignment, UnboundedRange},
   local_queue, BackgroundQueue, BatchReducer, ReducerExt, TaskQueue,
@@ -189,7 +189,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     );
 
     batching_benches.bench_with_input(
-      BenchmarkId::new("stack-queue::TaskQueue", batch_size),
+      BenchmarkId::new("TaskQueue", batch_size),
       &batch_size,
       |b, batch_size| {
         b.to_async(&rt)
@@ -198,7 +198,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     );
 
     batching_benches.bench_with_input(
-      BenchmarkId::new("stack-queue::BackgroundQueue", batch_size),
+      BenchmarkId::new("BackgroundQueue", batch_size),
       &batch_size,
       |b, batch_size| {
         b.to_async(&rt).iter_custom(|iters| async move {
@@ -230,10 +230,10 @@ fn criterion_benchmark(c: &mut Criterion) {
       &batch_size,
       |b, batch_size| {
         b.to_async(&rt).iter(|| {
-          (0..*batch_size)
-            .map(|i| Accumulator::batch_reduce(i as usize, |iter| iter.sum::<usize>()))
-            .collect::<FuturesUnordered<_>>()
-            .collect::<Vec<_>>()
+          join_all(
+            (0..*batch_size)
+              .map(|i| Accumulator::batch_reduce(i as usize, |iter| iter.sum::<usize>())),
+          )
         })
       },
     );
@@ -242,12 +242,8 @@ fn criterion_benchmark(c: &mut Criterion) {
       BenchmarkId::new("ReduceExt::batch_collect", batch_size),
       &batch_size,
       |b, batch_size| {
-        b.to_async(&rt).iter(|| {
-          (0..*batch_size)
-            .map(|i| Accumulator::batch_collect(i as usize))
-            .collect::<FuturesUnordered<_>>()
-            .collect::<Vec<_>>()
-        })
+        b.to_async(&rt)
+          .iter(|| join_all((0..*batch_size).map(|i| Accumulator::batch_collect(i as usize))))
       },
     );
 

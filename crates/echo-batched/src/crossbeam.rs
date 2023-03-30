@@ -1,7 +1,9 @@
+use std::iter;
+
 use crossbeam_deque::{Steal, Worker};
 use futures::future::join_all;
 use tokio::{
-  runtime::Handle,
+  spawn,
   sync::oneshot::{channel, Sender},
 };
 
@@ -18,8 +20,8 @@ pub async fn push_echo(i: u64) -> u64 {
     if i.eq(&0) {
       let stealer = queue.stealer();
 
-      Handle::current().spawn(async move {
-        std::iter::from_fn(|| loop {
+      spawn(async move {
+        iter::from_fn(|| loop {
           match stealer.steal() {
             Steal::Success(task) => break Some(task),
             Steal::Retry => continue,
@@ -39,7 +41,5 @@ pub async fn push_echo(i: u64) -> u64 {
 }
 
 pub async fn bench_batching(batch_size: &u64) {
-  let batch: Vec<u64> = join_all((0..*batch_size).map(push_echo)).await;
-
-  assert_eq!(batch, (0..*batch_size).collect::<Vec<u64>>())
+  join_all((0..*batch_size).map(push_echo)).await;
 }

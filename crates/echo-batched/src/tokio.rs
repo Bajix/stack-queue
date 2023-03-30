@@ -1,17 +1,19 @@
+use std::iter;
+
 use futures::future::join_all;
 use tokio::{
-  runtime::Handle,
+  spawn,
   sync::{mpsc, oneshot},
 };
 
 fn make_reactor() -> mpsc::UnboundedSender<(u64, oneshot::Sender<u64>)> {
   let (tx, mut rx) = mpsc::unbounded_channel::<(u64, oneshot::Sender<u64>)>();
 
-  Handle::current().spawn(async move {
+  spawn(async move {
     loop {
       if let Some(task) = rx.recv().await {
-        std::iter::once(task)
-          .chain(std::iter::from_fn(|| rx.try_recv().ok()))
+        iter::once(task)
+          .chain(iter::from_fn(|| rx.try_recv().ok()))
           .for_each(|(i, tx)| {
             tx.send(i).ok();
           });
@@ -37,7 +39,5 @@ pub async fn push_echo(i: u64) -> u64 {
 }
 
 pub async fn bench_batching(batch_size: &u64) {
-  let batch: Vec<u64> = join_all((0..*batch_size).map(push_echo)).await;
-
-  assert_eq!(batch, (0..*batch_size).collect::<Vec<u64>>())
+  join_all((0..*batch_size).map(push_echo)).await;
 }

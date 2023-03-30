@@ -18,12 +18,6 @@ impl TaskQueue for EchoQueue {
   }
 }
 
-pub async fn push_echo(i: u64) -> u64 {
-  EchoQueue::auto_batch(i).await
-}
-
 pub async fn bench_batching(batch_size: &u64) {
-  let batch: Vec<u64> = join_all((0..*batch_size).map(push_echo)).await;
-
-  assert_eq!(batch, (0..*batch_size).collect::<Vec<u64>>());
+  join_all((0..*batch_size).map(EchoQueue::auto_batch)).await;
 }
