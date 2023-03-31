@@ -576,7 +576,6 @@ where
               Ok(Some(batch)) => {
                 let _ = mem::replace(this.state, CollectState::Collecting { batch });
                 cx.waker().wake_by_ref();
-
                 Poll::Pending
               }
               Ok(None) => Poll::Ready(None),

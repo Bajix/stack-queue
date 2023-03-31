@@ -92,7 +92,7 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
 /// impl BackgroundQueue for EchoQueue {
 ///   type Task = (usize, oneshot::Sender<usize>);
 ///
-///   async fn batch_process<const N: usize>(tasks: UnboundedRange<'async_trait, Self::Task, N>) {///
+///   async fn batch_process<const N: usize>(tasks: UnboundedRange<'async_trait, Self::Task, N>) {
 ///     for (val, tx) in tasks.into_bounded().into_iter() {
 ///       tx.send(val).ok();
 ///     }

@@ -27,7 +27,11 @@ impl Default for QueueOpt {
   }
 }
 
-/// derive [LocalQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.LocalQueue.html) from [TaskQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.TaskQueue.html), [BackgroundQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.BackgroundQueue.html) or [BatchReducer](https://docs.rs/stack-queue/latest/stack_queue/trait.BatchReducer.html) impl
+/// Implements [LocalQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.LocalQueue.html) from [TaskQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.TaskQueue.html), [BackgroundQueue](https://docs.rs/stack-queue/latest/stack_queue/trait.BackgroundQueue.html) or [BatchReducer](https://docs.rs/stack-queue/latest/stack_queue/trait.BatchReducer.html) impl
+/// 
+/// ## Attributes
+///
+/// * `#[local_queue(buffer_size = 2048)]` specifies the buffer size of LocalQueue. This will be 512 by default, and must be a power of 2
 #[proc_macro_attribute]
 pub fn local_queue(
   args: proc_macro::TokenStream,
@@ -85,12 +89,9 @@ pub fn local_queue(
         .collect::<Vec<&str>>()
         .as_slice()
       {
-        ["stack_queue", "TaskQueue"] => Some(Variant::TaskQueue),
-        ["TaskQueue"] => Some(Variant::TaskQueue),
-        ["stack_queue", "BackgroundQueue"] => Some(Variant::BackgroundQueue),
-        ["BackgroundQueue"] => Some(Variant::BackgroundQueue),
-        ["stack_queue", "BatchReducer"] => Some(Variant::BatchReducer),
-        ["BatchReducer"] => Some(Variant::BatchReducer),
+        ["stack_queue", "TaskQueue"] | ["TaskQueue"] => Some(Variant::TaskQueue),
+        ["stack_queue", "BackgroundQueue"] | ["BackgroundQueue"] => Some(Variant::BackgroundQueue),
+        ["stack_queue", "BatchReducer"] | ["BatchReducer"]  => Some(Variant::BatchReducer),
         _ => None,
       }
     }
@@ -102,7 +103,7 @@ pub fn local_queue(
     None => {
       return Error::new(
         Span::call_site(),
-        "must be used on TaskQueue, BackgroundQueue or BatchReducer",
+        "must be used on TaskQueue, BackgroundQueue or BatchReducer impl",
       )
       .into_compile_error()
       .into();
