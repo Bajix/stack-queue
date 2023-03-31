@@ -29,7 +29,11 @@ use tokio::task::spawn;
 
 #[cfg(not(loom))]
 use crate::queue::QueueFull;
-use crate::queue::{LocalQueue, TaskQueue};
+use crate::{
+  assignment::{BufferIter, UnboundedRange},
+  queue::{LocalQueue, TaskQueue},
+  BatchReducer, BufferCell,
+};
 
 pub(crate) const SETTING_VALUE: usize = 1 << 0;
 pub(crate) const VALUE_SET: usize = 1 << 1;
@@ -357,7 +361,7 @@ where
 
     match this.state {
       State::Unbatched { task: _ } => {
-        match T::queue().try_with(|queue| {
+        match T::queue().with(|queue| {
           queue.enqueue(|state_ptr| {
             let task = {
               let state = std::mem::replace(
@@ -381,12 +385,12 @@ where
             (task, rx)
           })
         }) {
-          Ok(Ok(Some(assignment))) => {
+          Ok(Some(assignment)) => {
             spawn(async move {
               T::batch_process::<N>(assignment).await;
             });
           }
-          Ok(Err(QueueFull)) | Err(_) => {
+          Err(QueueFull) => {
             cx.waker().wake_by_ref();
           }
           _ => {}
@@ -402,7 +406,8 @@ where
 
         Poll::Ready(value)
       }
-      State::Received => unsafe { unreachable_unchecked() },
+      // If already received, block forever. See https://doc.rust-lang.org/std/future/trait.Future.html#panics
+      State::Received => Poll::Pending,
     }
   }
 }
@@ -429,6 +434,130 @@ where
           });
         }
       }
+    }
+  }
+}
+
+#[pin_project(project = ReduceProject, project_replace = ReduceReplace)]
+pub enum BatchReduce<'a, T, F, R, const N: usize>
+where
+  T: BatchReducer,
+  F: for<'b> FnOnce(BufferIter<'b, T::Task, N>) -> R + Send,
+{
+  #[doc(hidden)]
+  Unbatched { task: T::Task, reducer: F },
+  #[doc(hidden)]
+  Collecting {
+    batch: UnboundedRange<'a, T::Task, N>,
+    reducer: F,
+  },
+  #[doc(hidden)]
+  Batched,
+}
+
+impl<'a, T, F, R, const N: usize> Future for BatchReduce<'a, T, F, R, N>
+where
+  T: BatchReducer,
+  T: LocalQueue<N, BufferCell = BufferCell<T::Task>>,
+  F: for<'b> FnOnce(BufferIter<'b, T::Task, N>) -> R + Send,
+{
+  type Output = Option<R>;
+  fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    match self.as_mut().project() {
+      ReduceProject::Unbatched {
+        task: _,
+        reducer: _,
+      } => match self.as_mut().project_replace(BatchReduce::Batched) {
+        ReduceReplace::Unbatched { task, reducer } => {
+          match T::queue().with(|queue| unsafe { queue.push(task) }) {
+            Ok(Some(batch)) => {
+              self.project_replace(BatchReduce::Collecting { batch, reducer });
+              cx.waker().wake_by_ref();
+              Poll::Pending
+            }
+            Ok(None) => Poll::Ready(None),
+            Err(task) => {
+              self.project_replace(BatchReduce::Unbatched { task, reducer });
+              cx.waker().wake_by_ref();
+              Poll::Pending
+            }
+          }
+        }
+        _ => unsafe {
+          unreachable_unchecked();
+        },
+      },
+      ReduceProject::Collecting {
+        batch: _,
+        reducer: _,
+      } => match self.project_replace(BatchReduce::Batched) {
+        ReduceReplace::Collecting { batch, reducer } => {
+          Poll::Ready(Some(reducer(batch.into_bounded().into_iter())))
+        }
+        _ => unsafe {
+          unreachable_unchecked();
+        },
+      },
+      ReduceProject::Batched => Poll::Ready(None),
+    }
+  }
+}
+
+#[pin_project(project = CollectProject, project_replace = CollectReplace)]
+pub enum BatchCollect<'a, T, const N: usize>
+where
+  T: BatchReducer,
+{
+  #[doc(hidden)]
+  Unbatched { task: T::Task },
+  #[doc(hidden)]
+  Collecting {
+    batch: UnboundedRange<'a, T::Task, N>,
+  },
+  #[doc(hidden)]
+  Batched,
+}
+
+impl<'a, T, const N: usize> Future for BatchCollect<'a, T, N>
+where
+  T: BatchReducer,
+  T: LocalQueue<N, BufferCell = BufferCell<T::Task>>,
+{
+  type Output = Option<Vec<T::Task>>;
+  fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    match self.as_mut().project() {
+      CollectProject::Unbatched { task: _ } => {
+        match self.as_mut().project_replace(BatchCollect::Batched) {
+          CollectReplace::Unbatched { task } => {
+            match T::queue().with(|queue| unsafe { queue.push(task) }) {
+              Ok(Some(batch)) => {
+                self.project_replace(BatchCollect::Collecting { batch });
+                cx.waker().wake_by_ref();
+
+                Poll::Pending
+              }
+              Ok(None) => Poll::Ready(None),
+              Err(task) => {
+                self.project_replace(BatchCollect::Unbatched { task });
+                cx.waker().wake_by_ref();
+                Poll::Pending
+              }
+            }
+          }
+          _ => unsafe {
+            unreachable_unchecked();
+          },
+        }
+      }
+      CollectProject::Collecting { batch: _ } => {
+        match self.project_replace(BatchCollect::Batched) {
+          CollectReplace::Collecting { batch } => Poll::Ready(Some(batch.into_bounded().to_vec())),
+          _ => unsafe {
+            unreachable_unchecked();
+          },
+        }
+      }
+      CollectProject::Batched => Poll::Ready(None),
     }
   }
 }

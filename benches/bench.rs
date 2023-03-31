@@ -9,7 +9,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Samplin
 use futures::future::join_all;
 use stack_queue::{
   assignment::{CompletionReceipt, PendingAssignment, UnboundedRange},
-  local_queue, BackgroundQueue, BatchReducer, ReducerExt, TaskQueue,
+  local_queue, BackgroundQueue, BatchReducer, TaskQueue,
 };
 use tokio::{runtime::Builder, sync::oneshot};
 
@@ -226,7 +226,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     );
 
     batching_benches.bench_with_input(
-      BenchmarkId::new("ReduceExt::batch_reduce", batch_size),
+      BenchmarkId::new("BatchReducer::batch_reduce", batch_size),
       &batch_size,
       |b, batch_size| {
         b.to_async(&rt).iter(|| {
@@ -239,7 +239,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     );
 
     batching_benches.bench_with_input(
-      BenchmarkId::new("ReduceExt::batch_collect", batch_size),
+      BenchmarkId::new("BatchReducer::batch_collect", batch_size),
       &batch_size,
       |b, batch_size| {
         b.to_async(&rt)

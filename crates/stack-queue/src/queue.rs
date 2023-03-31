@@ -26,7 +26,7 @@ use tokio::task::{spawn, yield_now};
 use crate::{
   assignment::{BufferIter, CompletionReceipt, PendingAssignment, UnboundedRange},
   helpers::*,
-  task::{AutoBatchedTask, Receiver, TaskRef},
+  task::{AutoBatchedTask, BatchCollect, BatchReduce, Receiver, TaskRef},
   MAX_BUFFER_LEN, MIN_BUFFER_LEN,
 };
 
@@ -131,71 +131,25 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
 /// ```
 pub trait BatchReducer: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
-}
-
-/// Extension trait for types that impl [`BatchReducer`]
-#[async_trait]
-pub trait ReducerExt: Send + Sync + Sized + 'static {
-  type Task: Send + Sync + Sized + 'static;
 
   /// Reduce over tasks batched in an async context
-  async fn batch_reduce<const N: usize, F, R>(task: Self::Task, f: F) -> Option<R>
+  fn batch_reduce<'a, const N: usize, F, R>(
+    task: Self::Task,
+    reducer: F,
+  ) -> BatchReduce<'a, Self, F, R, N>
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
-    F: for<'a> FnOnce(BufferIter<'a, Self::Task, N>) -> R + Send;
-
-  /// Collect tasks batched in an async context
-  async fn batch_collect<const N: usize>(task: Self::Task) -> Option<Vec<Self::Task>>
-  where
-    Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>;
-}
-
-#[cfg(not(loom))]
-#[async_trait]
-impl<T> ReducerExt for T
-where
-  T: BatchReducer,
-{
-  type Task = <T as BatchReducer>::Task;
-
-  async fn batch_reduce<const N: usize, F, R>(mut task: Self::Task, f: F) -> Option<R>
-  where
-    Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
-    F: for<'a> FnOnce(BufferIter<'a, Self::Task, N>) -> R + Send,
+    F: for<'b> FnOnce(BufferIter<'b, Self::Task, N>) -> R + Send,
   {
-    loop {
-      match <Self as stack_queue::LocalQueue<N>>::queue().with(|queue| unsafe { queue.push(task) })
-      {
-        Ok(Some(batch)) => {
-          tokio::task::yield_now().await;
-          break Some(f(batch.into_bounded().into_iter()));
-        }
-        Ok(None) => break None,
-        Err(value) => {
-          task = value;
-          tokio::task::yield_now().await;
-        }
-      }
-    }
+    BatchReduce::Unbatched { task, reducer }
   }
 
-  async fn batch_collect<const N: usize>(mut task: Self::Task) -> Option<Vec<Self::Task>>
+  /// Collect tasks batched in an async context
+  fn batch_collect<'a, const N: usize>(task: Self::Task) -> BatchCollect<'a, Self, N>
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
   {
-    loop {
-      match <Self as LocalQueue<N>>::queue().with(|queue| unsafe { queue.push(task) }) {
-        Ok(Some(batch)) => {
-          tokio::task::yield_now().await;
-          break Some(batch.into_bounded().to_vec());
-        }
-        Ok(None) => break None,
-        Err(value) => {
-          task = value;
-          tokio::task::yield_now().await;
-        }
-      }
-    }
+    BatchCollect::Unbatched { task }
   }
 }
 
@@ -904,7 +858,7 @@ mod test {
   #[cfg(not(loom))]
   #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
   async fn it_batch_reduces() {
-    use crate::{BatchReducer, ReducerExt};
+    use crate::BatchReducer;
 
     struct Accumulator;
 
@@ -929,7 +883,7 @@ mod test {
   #[cfg(not(loom))]
   #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
   async fn it_batch_collects() {
-    use crate::{BatchReducer, ReducerExt};
+    use crate::BatchReducer;
 
     struct Accumulator;
 
