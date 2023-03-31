@@ -106,6 +106,11 @@ pub trait BackgroundQueue: Send + Sync + Sized + 'static {
   #[allow(clippy::needless_lifetimes)]
   async fn batch_process<const N: usize>(tasks: UnboundedRange<'async_trait, Self::Task, N>);
 
+  /// Process task in background
+  ///
+  /// # Panics
+  ///
+  /// Panics if called from **outside** of the Tokio runtime
   #[cfg(not(loom))]
   fn auto_batch<const N: usize>(task: Self::Task)
   where
