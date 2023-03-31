@@ -5,6 +5,7 @@ use std::{
   fmt::Debug,
   future::Future,
   hint::unreachable_unchecked,
+  mem,
   ops::Deref,
   ptr::addr_of,
   sync::atomic::{AtomicUsize, Ordering},
@@ -27,13 +28,13 @@ use redis::{RedisWrite, ToRedisArgs};
 #[cfg(not(loom))]
 use tokio::task::spawn;
 
-#[cfg(not(loom))]
-use crate::queue::QueueFull;
 use crate::{
   assignment::{BufferIter, UnboundedRange},
   queue::{LocalQueue, TaskQueue},
-  BatchReducer, BufferCell,
+  BatchReducer,
 };
+#[cfg(not(loom))]
+use crate::{queue::QueueFull, BufferCell};
 
 pub(crate) const SETTING_VALUE: usize = 1 << 0;
 pub(crate) const VALUE_SET: usize = 1 << 1;
@@ -364,7 +365,7 @@ where
         match T::queue().with(|queue| {
           queue.enqueue(|state_ptr| {
             let task = {
-              let state = std::mem::replace(
+              let state = mem::replace(
                 this.state,
                 State::Batched(Receiver::new(state_ptr, cx.waker().to_owned())),
               );
@@ -399,7 +400,7 @@ where
         Poll::Pending
       }
       State::Batched(_) => {
-        let value = match std::mem::replace(this.state, State::Received) {
+        let value = match mem::replace(this.state, State::Received) {
           State::Batched(rx) => unsafe { rx.with_value_mut(|val| (*val).assume_init_read()) },
           _ => unsafe { unreachable_unchecked() },
         };
@@ -438,23 +439,44 @@ where
   }
 }
 
-#[pin_project(project = ReduceProject, project_replace = ReduceReplace)]
-pub enum BatchReduce<'a, T, F, R, const N: usize>
+#[pin_project(project = ReduceProj)]
+pub struct BatchReduce<'a, T, F, R, const N: usize>
 where
   T: BatchReducer,
   F: for<'b> FnOnce(BufferIter<'b, T::Task, N>) -> R + Send,
 {
-  #[doc(hidden)]
-  Unbatched { task: T::Task, reducer: F },
-  #[doc(hidden)]
+  state: ReduceState<'a, T, F, R, N>,
+}
+
+impl<'a, T, F, R, const N: usize> BatchReduce<'a, T, F, R, N>
+where
+  T: BatchReducer,
+  F: for<'b> FnOnce(BufferIter<'b, T::Task, N>) -> R + Send,
+{
+  pub(crate) fn new(task: T::Task, reducer: F) -> Self {
+    BatchReduce {
+      state: ReduceState::Unbatched { task, reducer },
+    }
+  }
+}
+
+enum ReduceState<'a, T, F, R, const N: usize>
+where
+  T: BatchReducer,
+  F: for<'b> FnOnce(BufferIter<'b, T::Task, N>) -> R + Send,
+{
+  Unbatched {
+    task: T::Task,
+    reducer: F,
+  },
   Collecting {
     batch: UnboundedRange<'a, T::Task, N>,
     reducer: F,
   },
-  #[doc(hidden)]
   Batched,
 }
 
+#[cfg(not(loom))]
 impl<'a, T, F, R, const N: usize> Future for BatchReduce<'a, T, F, R, N>
 where
   T: BatchReducer,
@@ -463,21 +485,23 @@ where
 {
   type Output = Option<R>;
   fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    match self.as_mut().project() {
-      ReduceProject::Unbatched {
+    let this = self.as_mut().project();
+
+    match this.state {
+      ReduceState::Unbatched {
         task: _,
         reducer: _,
-      } => match self.as_mut().project_replace(BatchReduce::Batched) {
-        ReduceReplace::Unbatched { task, reducer } => {
+      } => match mem::replace(this.state, ReduceState::Batched) {
+        ReduceState::Unbatched { task, reducer } => {
           match T::queue().with(|queue| unsafe { queue.push(task) }) {
             Ok(Some(batch)) => {
-              self.project_replace(BatchReduce::Collecting { batch, reducer });
+              let _ = mem::replace(this.state, ReduceState::Collecting { batch, reducer });
               cx.waker().wake_by_ref();
               Poll::Pending
             }
             Ok(None) => Poll::Ready(None),
             Err(task) => {
-              self.project_replace(BatchReduce::Unbatched { task, reducer });
+              let _ = mem::replace(this.state, ReduceState::Unbatched { task, reducer });
               cx.waker().wake_by_ref();
               Poll::Pending
             }
@@ -487,37 +511,54 @@ where
           unreachable_unchecked();
         },
       },
-      ReduceProject::Collecting {
+      ReduceState::Collecting {
         batch: _,
         reducer: _,
-      } => match self.project_replace(BatchReduce::Batched) {
-        ReduceReplace::Collecting { batch, reducer } => {
+      } => match mem::replace(this.state, ReduceState::Batched) {
+        ReduceState::Collecting { batch, reducer } => {
           Poll::Ready(Some(reducer(batch.into_bounded().into_iter())))
         }
         _ => unsafe {
           unreachable_unchecked();
         },
       },
-      ReduceProject::Batched => Poll::Ready(None),
+      ReduceState::Batched => Poll::Ready(None),
     }
   }
 }
 
-#[pin_project(project = CollectProject, project_replace = CollectReplace)]
-pub enum BatchCollect<'a, T, const N: usize>
+#[pin_project(project = CollectProj)]
+pub struct BatchCollect<'a, T, const N: usize>
 where
   T: BatchReducer,
 {
-  #[doc(hidden)]
-  Unbatched { task: T::Task },
-  #[doc(hidden)]
+  state: CollectState<'a, T, N>,
+}
+
+impl<'a, T, const N: usize> BatchCollect<'a, T, N>
+where
+  T: BatchReducer,
+{
+  pub(crate) fn new(task: T::Task) -> Self {
+    BatchCollect {
+      state: CollectState::Unbatched { task },
+    }
+  }
+}
+enum CollectState<'a, T, const N: usize>
+where
+  T: BatchReducer,
+{
+  Unbatched {
+    task: T::Task,
+  },
   Collecting {
     batch: UnboundedRange<'a, T::Task, N>,
   },
-  #[doc(hidden)]
   Batched,
 }
 
+#[cfg(not(loom))]
 impl<'a, T, const N: usize> Future for BatchCollect<'a, T, N>
 where
   T: BatchReducer,
@@ -525,20 +566,22 @@ where
 {
   type Output = Option<Vec<T::Task>>;
   fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    match self.as_mut().project() {
-      CollectProject::Unbatched { task: _ } => {
-        match self.as_mut().project_replace(BatchCollect::Batched) {
-          CollectReplace::Unbatched { task } => {
+    let this = self.as_mut().project();
+
+    match this.state {
+      CollectState::Unbatched { task: _ } => {
+        match mem::replace(this.state, CollectState::Batched) {
+          CollectState::Unbatched { task } => {
             match T::queue().with(|queue| unsafe { queue.push(task) }) {
               Ok(Some(batch)) => {
-                self.project_replace(BatchCollect::Collecting { batch });
+                let _ = mem::replace(this.state, CollectState::Collecting { batch });
                 cx.waker().wake_by_ref();
 
                 Poll::Pending
               }
               Ok(None) => Poll::Ready(None),
               Err(task) => {
-                self.project_replace(BatchCollect::Unbatched { task });
+                let _ = mem::replace(this.state, CollectState::Unbatched { task });
                 cx.waker().wake_by_ref();
                 Poll::Pending
               }
@@ -549,15 +592,15 @@ where
           },
         }
       }
-      CollectProject::Collecting { batch: _ } => {
-        match self.project_replace(BatchCollect::Batched) {
-          CollectReplace::Collecting { batch } => Poll::Ready(Some(batch.into_bounded().to_vec())),
+      CollectState::Collecting { batch: _ } => {
+        match mem::replace(this.state, CollectState::Batched) {
+          CollectState::Collecting { batch } => Poll::Ready(Some(batch.into_bounded().to_vec())),
           _ => unsafe {
             unreachable_unchecked();
           },
         }
       }
-      CollectProject::Batched => Poll::Ready(None),
+      CollectState::Batched => Poll::Ready(None),
     }
   }
 }

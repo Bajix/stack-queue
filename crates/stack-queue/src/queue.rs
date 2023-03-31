@@ -141,7 +141,7 @@ pub trait BatchReducer: Send + Sync + Sized + 'static {
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
     F: for<'b> FnOnce(BufferIter<'b, Self::Task, N>) -> R + Send,
   {
-    BatchReduce::Unbatched { task, reducer }
+    BatchReduce::new(task, reducer)
   }
 
   /// Collect tasks batched in an async context
@@ -149,7 +149,7 @@ pub trait BatchReducer: Send + Sync + Sized + 'static {
   where
     Self: LocalQueue<N, BufferCell = BufferCell<Self::Task>>,
   {
-    BatchCollect::Unbatched { task }
+    BatchCollect::new(task)
   }
 }
 
