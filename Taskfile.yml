@@ -30,14 +30,14 @@ tasks:
   bench-slim:
     env:
       RUSTFLAGS: "-C target-cpu=native"
-      FILTER: Batching/(?:crossbeam|stack-queue::TaskQueue|stack-queue::BackgroundQueue)/16
+      FILTER: Batching/(?:crossbeam|TaskQueue|BackgroundQueue)/16
     cmds:
       - cargo bench --profile release -p echo-batched -- $FILTER
 
   generate-bench-table:
     env:
       RUSTFLAGS: "-C target-cpu=native"
-      FILTER: Batching/(?:crossbeam|flume|stack-queue::TaskQueue|stack-queue::BackgroundQueue|tokio::mpsc)/16
+      FILTER: Batching/(?:crossbeam|flume|TaskQueue|BackgroundQueue|tokio::mpsc)/16
     cmds:
       - cargo criterion --message-format=json -p echo-batched -- $FILTER | criterion-table
 
