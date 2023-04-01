@@ -144,11 +144,7 @@ pub fn local_queue(
       #[stack_queue::async_t::async_trait]
       #input
     ),
-    Variant::BatchReducer => quote!(
-      impl BatchReducer for #ident {
-        type Task = #task;
-      }
-    ),
+    Variant::BatchReducer => quote!(#input),
   };
 
   let expanded = quote!(
