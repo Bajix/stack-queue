@@ -166,7 +166,7 @@ pub trait LocalQueue<const N: usize> {
 }
 
 #[doc(hidden)]
-pub struct Inner<T: Sync + Sized + 'static, const N: usize = 512> {
+pub struct Inner<T: Sync + Sized + 'static, const N: usize = 1024> {
   pub(crate) slot: CachePadded<AtomicUsize>,
   pub(crate) occupancy: CachePadded<AtomicUsize>,
   pub(crate) buffer: [T; N],
@@ -234,7 +234,7 @@ pub(crate) struct QueueFull;
 
 /// Task queue designed for facilitating heapless auto-batching of tasks
 #[derive(AsContext)]
-pub struct StackQueue<T: Sync + Sized + 'static, const N: usize = 512> {
+pub struct StackQueue<T: Sync + Sized + 'static, const N: usize = 1024> {
   slot: CachePadded<UnsafeCell<usize>>,
   occupancy: CachePadded<UnsafeCell<usize>>,
   inner: Context<Inner<T, N>>,
@@ -589,7 +589,7 @@ mod test {
   #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
 
   async fn it_cycles() {
-    for i in 0..512 {
+    for i in 0..1024 {
       EchoQueue::auto_batch(i).await;
     }
   }

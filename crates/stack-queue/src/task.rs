@@ -332,7 +332,7 @@ pub(crate) enum State<T: TaskQueue> {
 
 /// An automatically batched task
 #[pin_project(project = AutoBatchProj, PinnedDrop)]
-pub struct BatchedTask<T: TaskQueue, const N: usize = 512> {
+pub struct BatchedTask<T: TaskQueue, const N: usize = 1024> {
   pub(crate) state: State<T>,
 }
 

@@ -23,7 +23,7 @@ struct QueueOpt {
 
 impl Default for QueueOpt {
   fn default() -> Self {
-    QueueOpt { buffer_size: 512 }
+    QueueOpt { buffer_size: 1024 }
   }
 }
 
@@ -31,7 +31,7 @@ impl Default for QueueOpt {
 /// 
 /// ## Attributes
 ///
-/// * `#[local_queue(buffer_size = 2048)]` specifies the buffer size of LocalQueue. This will be 512 by default, and must be a power of 2
+/// * `#[local_queue(buffer_size = 2048)]` specifies the buffer size of LocalQueue. This will be 1024 by default, and must be a power of 2
 #[proc_macro_attribute]
 pub fn local_queue(
   args: proc_macro::TokenStream,
