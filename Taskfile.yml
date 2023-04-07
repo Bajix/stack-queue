@@ -62,6 +62,12 @@ tasks:
     sources:
       - crates/stack-queue/**/*.rs
 
+  check:
+    cmds:
+      - cargo check -p stack-queue --features redis-args --features diesel-associations
+    sources:
+      - crates/stack-queue/**/*.rs
+
   check-tests:
     cmds:
       - cargo check -p stack-queue --tests
