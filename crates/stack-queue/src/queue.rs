@@ -26,7 +26,7 @@ use tokio::task::{spawn, yield_now};
 use crate::{
   assignment::{BufferIter, CompletionReceipt, PendingAssignment, UnboundedRange},
   helpers::*,
-  task::{AutoBatchedTask, BatchCollect, BatchReduce, Receiver, TaskRef},
+  task::{BatchCollect, BatchReduce, BatchedTask, Receiver, TaskRef},
   MAX_BUFFER_LEN, MIN_BUFFER_LEN,
 };
 
@@ -73,11 +73,11 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
     assignment: PendingAssignment<'async_trait, Self, N>,
   ) -> CompletionReceipt<Self>;
 
-  fn auto_batch<const N: usize>(task: Self::Task) -> AutoBatchedTask<Self, N>
+  fn auto_batch<const N: usize>(task: Self::Task) -> BatchedTask<Self, N>
   where
     Self: LocalQueue<N, BufferCell = TaskRef<Self>>,
   {
-    AutoBatchedTask::new(task)
+    BatchedTask::new(task)
   }
 }
 
@@ -766,7 +766,7 @@ mod test {
     use futures_test::task::noop_waker;
     use loom::sync::{Arc, Condvar, Mutex};
 
-    use crate::task::{AutoBatchedTask, Receiver, State, TaskRef};
+    use crate::task::{BatchedTask, Receiver, State, TaskRef};
 
     loom::model(|| {
       let task: Arc<TaskRef<EchoQueue>> = Arc::new(TaskRef::new_uninit());
@@ -795,7 +795,7 @@ mod test {
 
           let rx: Receiver<EchoQueue> = Receiver::new(task.state_ptr(), waker);
 
-          let auto_batched_task: AutoBatchedTask<EchoQueue, 256> = AutoBatchedTask {
+          let auto_batched_task: BatchedTask<EchoQueue, 256> = BatchedTask {
             state: State::Batched(rx),
           };
 

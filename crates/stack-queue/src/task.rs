@@ -40,7 +40,7 @@ pub(crate) const SETTING_VALUE: usize = 1 << 0;
 pub(crate) const VALUE_SET: usize = 1 << 1;
 pub(crate) const RECEIVER_DROPPED: usize = 1 << 2;
 
-/// A pointer to the pinned receiver of an enqueued [`AutoBatchedTask`]
+/// A pointer to the pinned receiver of an enqueued [`BatchedTask`]
 pub struct TaskRef<T: TaskQueue> {
   state: UnsafeCell<AtomicUsize>,
   rx: UnsafeCell<MaybeUninit<*const Receiver<T>>>,
@@ -332,25 +332,25 @@ pub(crate) enum State<T: TaskQueue> {
 
 /// An automatically batched task
 #[pin_project(project = AutoBatchProj, PinnedDrop)]
-pub struct AutoBatchedTask<T: TaskQueue, const N: usize = 512> {
+pub struct BatchedTask<T: TaskQueue, const N: usize = 512> {
   pub(crate) state: State<T>,
 }
 
-impl<T, const N: usize> AutoBatchedTask<T, N>
+impl<T, const N: usize> BatchedTask<T, N>
 where
   T: TaskQueue,
   T: LocalQueue<N, BufferCell = TaskRef<T>>,
 {
   /// Create a new auto batched task
   pub fn new(task: T::Task) -> Self {
-    AutoBatchedTask {
+    BatchedTask {
       state: State::Unbatched { task },
     }
   }
 }
 
 #[cfg(not(loom))]
-impl<T, const N: usize> Future for AutoBatchedTask<T, N>
+impl<T, const N: usize> Future for BatchedTask<T, N>
 where
   T: TaskQueue,
   T: LocalQueue<N, BufferCell = TaskRef<T>>,
@@ -414,7 +414,7 @@ where
 }
 
 #[pinned_drop]
-impl<T, const N: usize> PinnedDrop for AutoBatchedTask<T, N>
+impl<T, const N: usize> PinnedDrop for BatchedTask<T, N>
 where
   T: TaskQueue,
 {
