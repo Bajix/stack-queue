@@ -1,8 +1,9 @@
 use std::iter;
 
+use criterion::{measurement::WallTime, BenchmarkGroup, BenchmarkId};
 use flume::{self, Sender};
 use futures::future::join_all;
-use tokio::{spawn, sync::oneshot};
+use tokio::{runtime::Runtime, spawn, sync::oneshot};
 
 fn make_reactor() -> Sender<(u64, oneshot::Sender<u64>)> {
   let (tx, rx) = flume::unbounded::<(u64, oneshot::Sender<u64>)>();
@@ -22,7 +23,7 @@ fn make_reactor() -> Sender<(u64, oneshot::Sender<u64>)> {
   tx
 }
 
-pub async fn push_echo(i: u64) -> u64 {
+async fn push_echo(i: u64) -> u64 {
   thread_local! {
     static QUEUE: Sender<(u64, oneshot::Sender<u64>)> = make_reactor();
   }
@@ -36,6 +37,13 @@ pub async fn push_echo(i: u64) -> u64 {
   rx.await.unwrap()
 }
 
-pub async fn bench_batching(batch_size: &u64) {
-  join_all((0..*batch_size).map(push_echo)).await;
+pub fn bench_batching(rt: &Runtime, bench: &mut BenchmarkGroup<WallTime>, batch_size: u64) {
+  bench.bench_with_input(
+    BenchmarkId::new("flume", batch_size),
+    &batch_size,
+    |b, batch_size| {
+      b.to_async(rt)
+        .iter(|| join_all((0..*batch_size).map(push_echo)))
+    },
+  );
 }

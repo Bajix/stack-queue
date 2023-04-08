@@ -1,7 +1,7 @@
 [workspace]
 members = [
+  "crates/bencher",
   "crates/derive-stack-queue",
-  "crates/echo-batched",
   "crates/stack-queue",
 ]
 

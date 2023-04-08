@@ -1,8 +1,10 @@
 use std::iter;
 
+use criterion::{measurement::WallTime, BenchmarkGroup, BenchmarkId};
 use crossbeam_deque::{Steal, Worker};
 use futures::future::join_all;
 use tokio::{
+  runtime::Runtime,
   spawn,
   sync::oneshot::{channel, Sender},
 };
@@ -40,6 +42,13 @@ pub async fn push_echo(i: u64) -> u64 {
   rx.await.unwrap()
 }
 
-pub async fn bench_batching(batch_size: &u64) {
-  join_all((0..*batch_size).map(push_echo)).await;
+pub fn bench_batching(rt: &Runtime, bench: &mut BenchmarkGroup<WallTime>, batch_size: u64) {
+  bench.bench_with_input(
+    BenchmarkId::new("crossbeam", batch_size),
+    &batch_size,
+    |b, batch_size| {
+      b.to_async(rt)
+        .iter(|| join_all((0..*batch_size).map(push_echo)))
+    },
+  );
 }
