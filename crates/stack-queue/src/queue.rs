@@ -26,7 +26,7 @@ use tokio::task::{spawn, yield_now};
 use crate::{
   assignment::{BufferIter, CompletionReceipt, PendingAssignment, UnboundedRange},
   helpers::*,
-  task::{BatchCollect, BatchReduce, BatchedTask, Receiver, TaskRef},
+  task::{BatchCollect, BatchReduce, BatchedTask, TaskRef},
   MAX_BUFFER_LEN, MIN_BUFFER_LEN,
 };
 
@@ -402,22 +402,13 @@ impl<T, const N: usize> StackQueue<TaskRef<T>, N>
 where
   T: TaskQueue,
 {
-  unsafe fn write_with<F>(&self, index: &usize, write_with: F)
-  where
-    F: FnOnce(*const AtomicUsize) -> (T::Task, *const Receiver<T>),
-  {
-    let task_ref = self.inner.buffer.get_unchecked(*index);
-    let (task, rx) = write_with(task_ref.state_ptr());
-    task_ref.set_task(task, rx);
-  }
-
-  pub(crate) fn enqueue<'a, F>(
+  pub(crate) unsafe fn enqueue<'a, F>(
     &self,
     write_with: F,
   ) -> Result<Option<PendingAssignment<'a, T, N>>, QueueFull>
   where
     T: LocalQueue<N, BufferCell = TaskRef<T>>,
-    F: FnOnce(*const AtomicUsize) -> (T::Task, *const Receiver<T>),
+    F: FnOnce(&TaskRef<T>),
   {
     let write_index = self.current_write_index();
 
@@ -427,7 +418,7 @@ where
     }
 
     unsafe {
-      self.write_with(&write_index, write_with);
+      write_with(self.inner.buffer.get_unchecked(write_index));
     }
 
     let base_slot = self
@@ -808,7 +799,9 @@ mod test {
             _ => unsafe { unreachable_unchecked() },
           };
 
-          unsafe { task.set_task(9001, rx) };
+          unsafe {
+            task.init(9001, rx);
+          };
 
           let (lock, cvar) = &*barrier;
           let mut task_initialized = lock.lock().unwrap();

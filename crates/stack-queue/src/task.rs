@@ -10,7 +10,7 @@ use std::{
   ptr::addr_of,
   sync::atomic::{AtomicUsize, Ordering},
   task::{Context, Poll},
-  thread::yield_now,
+  thread,
 };
 use std::{marker::PhantomPinned, mem::MaybeUninit, pin::Pin, task::Waker};
 
@@ -20,7 +20,7 @@ use diesel::associations::BelongsTo;
 use loom::{
   cell::UnsafeCell,
   sync::atomic::{AtomicUsize, Ordering},
-  thread::yield_now,
+  thread,
 };
 use pin_project::{pin_project, pinned_drop};
 #[cfg(feature = "redis-args")]
@@ -36,9 +36,9 @@ use crate::{
 #[cfg(not(loom))]
 use crate::{queue::QueueFull, BufferCell};
 
-pub(crate) const SETTING_VALUE: usize = 1 << 0;
-pub(crate) const VALUE_SET: usize = 1 << 1;
-pub(crate) const RECEIVER_DROPPED: usize = 1 << 2;
+const SETTING_VALUE: usize = 1 << 0;
+const VALUE_SET: usize = 1 << 1;
+const RX_DROPPED: usize = 1 << 2;
 
 /// A pointer to the pinned receiver of an enqueued [`BatchedTask`]
 pub struct TaskRef<T: TaskQueue> {
@@ -116,32 +116,20 @@ where
 
   #[cfg(not(loom))]
   #[inline(always)]
-  unsafe fn with_state_mut<F, R>(&self, f: F) -> R
-  where
-    F: FnOnce(*mut AtomicUsize) -> R,
-  {
-    f(self.state.get())
+  unsafe fn set_state_unsync(&self, state: usize) {
+    *(*self.state.get()).get_mut() = state;
   }
 
   #[cfg(loom)]
   #[inline(always)]
-  unsafe fn with_state_mut<F, R>(&self, f: F) -> R
-  where
-    F: FnOnce(*mut AtomicUsize) -> R,
-  {
-    self.state.get_mut().with(f)
+  unsafe fn set_state_unsync(&self, state: usize) {
+    self.state.get_mut().deref().with_mut(|val| *val = state);
   }
 
-  #[cfg(not(loom))]
-  #[inline(always)]
-  unsafe fn reset_state(&self) {
-    self.with_state_mut(|val| *(*val).get_mut() = 0);
-  }
-
-  #[cfg(loom)]
-  #[inline(always)]
-  unsafe fn reset_state(&self) {
-    self.with_state_mut(|val| (*val).with_mut(|val| *val = 0));
+  pub(crate) unsafe fn init(&self, task: T::Task, rx: *const Receiver<T>) {
+    self.set_state_unsync(0);
+    self.with_rx_mut(|val| val.write(MaybeUninit::new(rx)));
+    self.with_task_mut(|val| val.write(MaybeUninit::new(task)));
   }
 
   #[cfg(not(loom))]
@@ -158,7 +146,7 @@ where
 
   #[cfg(not(loom))]
   #[inline(always)]
-  unsafe fn with_rx_mut<F, R>(&self, f: F) -> R
+  pub(crate) unsafe fn with_rx_mut<F, R>(&self, f: F) -> R
   where
     F: FnOnce(*mut MaybeUninit<*const Receiver<T>>) -> R,
   {
@@ -167,7 +155,7 @@ where
 
   #[cfg(loom)]
   #[inline(always)]
-  unsafe fn with_rx_mut<F, R>(&self, f: F) -> R
+  pub(crate) unsafe fn with_rx_mut<F, R>(&self, f: F) -> R
   where
     F: FnOnce(*mut MaybeUninit<*const Receiver<T>>) -> R,
   {
@@ -182,7 +170,7 @@ where
 
   #[cfg(not(loom))]
   #[inline(always)]
-  unsafe fn with_task_mut<F, R>(&self, f: F) -> R
+  pub(crate) unsafe fn with_task_mut<F, R>(&self, f: F) -> R
   where
     F: FnOnce(*mut MaybeUninit<T::Task>) -> R,
   {
@@ -191,17 +179,11 @@ where
 
   #[cfg(loom)]
   #[inline(always)]
-  unsafe fn with_task_mut<F, R>(&self, f: F) -> R
+  pub(crate) unsafe fn with_task_mut<F, R>(&self, f: F) -> R
   where
     F: FnOnce(*mut MaybeUninit<T::Task>) -> R,
   {
     self.task.get_mut().with(f)
-  }
-
-  pub(crate) unsafe fn set_task(&self, task: T::Task, rx: *const Receiver<T>) {
-    self.reset_state();
-    self.with_rx_mut(|val| val.write(MaybeUninit::new(rx)));
-    self.with_task_mut(|val| val.write(MaybeUninit::new(task)));
   }
 
   #[inline(always)]
@@ -214,7 +196,7 @@ where
   pub(crate) unsafe fn resolve_unchecked(&self, value: T::Value) {
     let state = self.with_state(|val| (*val).fetch_or(SETTING_VALUE, Ordering::Release));
 
-    if (state & RECEIVER_DROPPED).eq(&0) {
+    if (state & RX_DROPPED).eq(&0) {
       let rx = self.rx();
       rx.with_value_mut(|val| {
         val.write(MaybeUninit::new(value));
@@ -331,7 +313,7 @@ pub(crate) enum State<T: TaskQueue> {
 }
 
 /// An automatically batched task
-#[pin_project(project = AutoBatchProj, PinnedDrop)]
+#[pin_project(project = TaskProj, PinnedDrop)]
 pub struct BatchedTask<T: TaskQueue, const N: usize = 1024> {
   pub(crate) state: State<T>,
 }
@@ -362,28 +344,22 @@ where
 
     match this.state {
       State::Unbatched { task: _ } => {
-        match T::queue().with(|queue| {
-          queue.enqueue(|state_ptr| {
-            let task = {
-              let state = mem::replace(
-                this.state,
-                State::Batched(Receiver::new(state_ptr, cx.waker().to_owned())),
-              );
-
-              match state {
-                State::Unbatched { task } => task,
-                _ => unsafe { unreachable_unchecked() },
-              }
+        match T::queue().with(|queue| unsafe {
+          queue.enqueue(|task_ref| {
+            let task = match mem::replace(
+              this.state,
+              State::Batched(Receiver::new(task_ref.state_ptr(), cx.waker().to_owned())),
+            ) {
+              State::Unbatched { task } => task,
+              _ => unreachable_unchecked(),
             };
 
             let rx = match this.state {
-              State::Batched(batched) => {
-                addr_of!(*batched)
-              }
-              _ => unsafe { unreachable_unchecked() },
+              State::Batched(batched) => addr_of!(*batched),
+              _ => unreachable_unchecked(),
             };
 
-            (task, rx)
+            task_ref.init(task, rx)
           })
         }) {
           Ok(Some(assignment)) => {
@@ -420,11 +396,11 @@ where
 {
   fn drop(self: Pin<&mut Self>) {
     if let State::Batched(rx) = &self.state {
-      let mut state = rx.state().fetch_or(RECEIVER_DROPPED, Ordering::AcqRel);
+      let mut state = rx.state().fetch_or(RX_DROPPED, Ordering::AcqRel);
 
       // This cannot be safely deallocated until after the value is set
       while state & SETTING_VALUE == SETTING_VALUE {
-        yield_now();
+        thread::yield_now();
         state = rx.state().load(Ordering::Acquire);
       }
 
