@@ -1,4 +1,7 @@
-#![cfg_attr(not(feature = "boxed"), feature(type_alias_impl_trait))]
+#![cfg_attr(
+  not(feature = "boxed"),
+  feature(type_alias_impl_trait, impl_trait_in_assoc_type)
+)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(loom, allow(dead_code))]
 
