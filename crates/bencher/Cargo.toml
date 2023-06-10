@@ -11,7 +11,7 @@ publish = false
 
 [dependencies]
 async_t = "0.7"
-criterion = { version = "0.4.0", features = ["async_tokio", "html_reports"] }
+criterion = { version = "0.5.1", features = ["async_tokio", "html_reports"] }
 crossbeam-deque = "0.8"
 flume = "0.10"
 futures = "0.3"
