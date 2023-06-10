@@ -1,7 +1,7 @@
-use darling::FromMeta;
+use darling::{export::NestedMeta, FromMeta};
 use proc_macro2::Span;
 use quote::quote;
-use syn::{parse::Error, parse_macro_input, AttributeArgs, ImplItem, ItemImpl};
+use syn::{parse::Error, parse_macro_input, ImplItem, ItemImpl};
 
 const MIN_BUFFER_LEN: usize = 64;
 
@@ -38,7 +38,13 @@ pub fn local_queue(
   args: proc_macro::TokenStream,
   input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-  let attr_args = parse_macro_input!(args as AttributeArgs);
+  let attr_args = match NestedMeta::parse_meta_list(args.into()) {
+    Ok(v) => v,
+    Err(e) => {
+      return darling::Error::from(e).write_errors().into();
+    }
+  };
+
   let mut input = parse_macro_input!(input as ItemImpl);
 
   input.attrs = vec![];

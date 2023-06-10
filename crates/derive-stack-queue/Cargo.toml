@@ -14,10 +14,10 @@ doctest = false
 proc-macro = true
 
 [dependencies]
-darling = "0.14"
+darling = "0.20"
 proc-macro2 = "1"
 quote = "1"
-syn = { version = "1", features = [] }
+syn = { version = "2", features = [] }
 
 [package.metadata.docs.rs]
 all-features = false
