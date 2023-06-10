@@ -13,7 +13,7 @@ use std::{
 
 use async_local::{AsContext, AsyncLocal, Context};
 use async_t::async_trait;
-use cache_padded::CachePadded;
+use crossbeam_utils::CachePadded;
 #[cfg(loom)]
 use loom::{
   cell::UnsafeCell,
