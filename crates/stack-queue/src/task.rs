@@ -465,6 +465,7 @@ where
   F: for<'b> FnOnce(BufferIter<'b, T::Task, N>) -> R + Send,
 {
   state: ReduceState<'a, T, F, R, N>,
+  pin: PhantomPinned,
 }
 
 impl<'a, T, F, R, const N: usize> BatchReduce<'a, T, F, R, N>
@@ -475,6 +476,7 @@ where
   pub(crate) fn new(task: T::Task, reducer: F) -> Self {
     BatchReduce {
       state: ReduceState::Unbatched { task, reducer },
+      pin: PhantomPinned,
     }
   }
 }
@@ -552,6 +554,7 @@ where
   T: BatchReducer,
 {
   state: CollectState<'a, T, N>,
+  pin: PhantomPinned,
 }
 
 impl<'a, T, const N: usize> BatchCollect<'a, T, N>
@@ -561,6 +564,7 @@ where
   pub(crate) fn new(task: T::Task) -> Self {
     BatchCollect {
       state: CollectState::Unbatched { task },
+      pin: PhantomPinned,
     }
   }
 }
