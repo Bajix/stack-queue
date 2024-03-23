@@ -1,5 +1,3 @@
-#![feature(type_alias_impl_trait)]
-
 use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, Criterion, SamplingMode};
