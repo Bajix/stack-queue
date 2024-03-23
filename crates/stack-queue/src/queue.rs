@@ -570,7 +570,7 @@ mod test {
     use rand::{distributions::Standard, prelude::*};
     let mut rng = rand::thread_rng();
 
-    let seed: Vec<usize> = (&mut rng).sample_iter(Standard).take(65536).collect();
+    let seed: Vec<usize> = (&mut rng).sample_iter(Standard).take(1 << 16).collect();
 
     let expected_total: u128 = seed
       .iter()
@@ -581,7 +581,7 @@ mod test {
 
     while seed.len().gt(&0) {
       let mut tasks: FuturesUnordered<_> = (&mut seed)
-        .take(rng.gen_range(0..8192))
+        .take(rng.gen_range(0..1 << 13))
         .map(EchoQueue::auto_batch)
         .collect();
 
@@ -596,7 +596,7 @@ mod test {
   #[cfg(not(loom))]
   #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
   async fn it_cycles() {
-    for i in 0..8192 {
+    for i in 0..1 << 16 {
       EchoQueue::auto_batch(i).await;
     }
   }
@@ -879,7 +879,7 @@ mod test {
       type Task = usize;
     }
 
-    let tasks: FuturesUnordered<_> = (0..10000)
+    let tasks: FuturesUnordered<_> = (0..1 << 16)
       .map(|i| Accumulator::batch_reduce(i, |iter| iter.sum::<usize>()))
       .collect();
 
@@ -889,7 +889,7 @@ mod test {
       })
       .await;
 
-    assert_eq!(total, (0..10000).sum());
+    assert_eq!(total, (0..1 << 16).sum());
   }
 
   #[cfg(not(loom))]
@@ -904,7 +904,7 @@ mod test {
       type Task = usize;
     }
 
-    let mut tasks: FuturesUnordered<_> = (0..10000).map(Accumulator::batch_collect).collect();
+    let mut tasks: FuturesUnordered<_> = (0..1 << 16).map(Accumulator::batch_collect).collect();
 
     let mut total = 0;
 
@@ -912,6 +912,6 @@ mod test {
       total += batch.map_or(0, |batch| batch.into_iter().sum::<usize>());
     }
 
-    assert_eq!(total, (0..10000).sum());
+    assert_eq!(total, (0..1 << 16).sum());
   }
 }
