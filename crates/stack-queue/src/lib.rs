@@ -1,14 +1,7 @@
-#![cfg_attr(
-  not(feature = "boxed"),
-  feature(type_alias_impl_trait, impl_trait_in_assoc_type)
-)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(loom, allow(dead_code))]
 
 extern crate self as stack_queue;
-
-#[doc(hidden)]
-pub extern crate async_t;
 
 #[doc(hidden)]
 #[cfg(loom)]

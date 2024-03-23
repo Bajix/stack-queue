@@ -146,16 +146,8 @@ pub fn local_queue(
 
   let queue = quote!(stack_queue::StackQueue<#buffer_cell, #buffer_size>);
 
-  let queue_impl = match &variant {
-    Variant::TaskQueue | Variant::BackgroundQueue => quote!(
-      #[stack_queue::async_t::async_trait]
-      #input
-    ),
-    Variant::BatchReducer => quote!(#input),
-  };
-
   let expanded = quote!(
-    #queue_impl
+    #input
 
     #[cfg(not(loom))]
     impl stack_queue::LocalQueue<#buffer_size> for #ident {

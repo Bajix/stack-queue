@@ -20,7 +20,7 @@ pub fn bench_tasks(rt: &Runtime, bench: &mut BenchmarkGroup<WallTime>) {
     type Value = Duration;
 
     async fn batch_process<const N: usize>(
-      batch: PendingAssignment<'async_trait, Self, N>,
+      batch: PendingAssignment<'_, Self, N>,
     ) -> CompletionReceipt<Self> {
       let start = Instant::now();
       let assignment = batch.into_assignment();
@@ -38,7 +38,7 @@ pub fn bench_tasks(rt: &Runtime, bench: &mut BenchmarkGroup<WallTime>) {
     type Value = Duration;
 
     async fn batch_process<const N: usize>(
-      batch: PendingAssignment<'async_trait, Self, N>,
+      batch: PendingAssignment<'_, Self, N>,
     ) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
       let batched_at = Instant::now();
@@ -55,7 +55,7 @@ pub fn bench_tasks(rt: &Runtime, bench: &mut BenchmarkGroup<WallTime>) {
     type Value = Instant;
 
     async fn batch_process<const N: usize>(
-      batch: PendingAssignment<'async_trait, Self, N>,
+      batch: PendingAssignment<'_, Self, N>,
     ) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
       let batched_at = Instant::now();
@@ -110,7 +110,7 @@ pub fn bench_batching(rt: &Runtime, bench: &mut BenchmarkGroup<WallTime>, batch_
     type Value = u64;
 
     async fn batch_process<const N: usize>(
-      batch: PendingAssignment<'async_trait, Self, N>,
+      batch: PendingAssignment<'_, Self, N>,
     ) -> CompletionReceipt<Self> {
       batch.into_assignment().map(|val| val)
     }
@@ -122,7 +122,7 @@ pub fn bench_batching(rt: &Runtime, bench: &mut BenchmarkGroup<WallTime>, batch_
   impl BackgroundQueue for BackgroundTimerQueue {
     type Task = (Instant, oneshot::Sender<Duration>);
 
-    async fn batch_process<const N: usize>(batch: UnboundedRange<'async_trait, Self::Task, N>) {
+    async fn batch_process<const N: usize>(batch: UnboundedRange<'_, Self::Task, N>) {
       let tasks = batch.into_bounded().into_iter();
       let collected_at = Instant::now();
 

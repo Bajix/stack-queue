@@ -1,6 +1,7 @@
 use std::{
   array,
   fmt::Debug,
+  future::Future,
   mem::MaybeUninit,
   ops::{BitAnd, Deref},
 };
@@ -12,7 +13,6 @@ use std::{
 };
 
 use async_local::{AsContext, AsyncLocal, Context};
-use async_t::async_trait;
 use crossbeam_utils::CachePadded;
 use generativity::{Guard, Id};
 #[cfg(loom)]
@@ -64,15 +64,13 @@ unsafe impl<T> Send for BufferCell<T> where T: Send + Sync + Sized + 'static {}
 unsafe impl<T> Sync for BufferCell<T> where T: Send + Sync + Sized + 'static {}
 
 /// Auto-batched queue whereby each task resolves to a value
-#[async_trait]
 pub trait TaskQueue: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
   type Value: Send;
 
-  #[allow(clippy::needless_lifetimes)]
-  async fn batch_process<const N: usize>(
-    assignment: PendingAssignment<'async_trait, Self, N>,
-  ) -> CompletionReceipt<Self>;
+  fn batch_process<const N: usize>(
+    assignment: PendingAssignment<'_, Self, N>,
+  ) -> impl Future<Output = CompletionReceipt<Self>> + Send;
 
   fn auto_batch<const N: usize>(task: Self::Task) -> BatchedTask<Self, N>
   where
@@ -93,19 +91,19 @@ pub trait TaskQueue: Send + Sync + Sized + 'static {
 /// impl BackgroundQueue for EchoQueue {
 ///   type Task = (usize, oneshot::Sender<usize>);
 ///
-///   async fn batch_process<const N: usize>(tasks: UnboundedRange<'async_trait, Self::Task, N>) {
+///   fn batch_process<const N: usize>(tasks: UnboundedRange<'_, Self::Task, N>) -> impl Future<Output = ()> + Send {
 ///     for (val, tx) in tasks.into_bounded().into_iter() {
 ///       tx.send(val).ok();
 ///     }
 ///   }
 /// }
 /// ```
-#[async_trait]
 pub trait BackgroundQueue: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
 
-  #[allow(clippy::needless_lifetimes)]
-  async fn batch_process<const N: usize>(tasks: UnboundedRange<'async_trait, Self::Task, N>);
+  fn batch_process<const N: usize>(
+    tasks: UnboundedRange<'_, Self::Task, N>,
+  ) -> impl Future<Output = ()> + Send;
 
   /// Process task in background
   ///
@@ -344,7 +342,6 @@ where
     // This algorithm can utilize an UnsafeCell for the index counter because where the current task
     // is written is independent of when a phase change would result in a new task batch owning a
     // new range of the buffer; only ownership is determined by atomic synchronization, not location
-
     unsafe { self.with_slot(|val| slot_index::<N>(*val)) }
   }
 
@@ -354,7 +351,6 @@ where
     // If this is out of sync, then the region could be incorrectly marked as full, but never
     // incorrectly marked as free, and so this optimization allows us to avoid the overhead of an
     // atomic call so long as regions are cleared within a full cycle
-
     let regional_occupancy =
       unsafe { self.with_occupancy(|occupancy| (*occupancy).bitand(region_mask)) };
 
@@ -418,16 +414,14 @@ where
       self.check_regional_occupancy(write_index)?;
     }
 
-    unsafe {
-      write_with(self.inner.buffer.get_unchecked(write_index));
-    }
+    write_with(self.inner.buffer.get_unchecked(write_index));
 
     let base_slot = self
       .inner
       .slot
       .fetch_add(1 << INDEX_SHIFT, Ordering::Relaxed);
 
-    let prev_slot = unsafe { self.replace_slot(base_slot.wrapping_add(1 << INDEX_SHIFT)) };
+    let prev_slot = self.replace_slot(base_slot.wrapping_add(1 << INDEX_SHIFT));
 
     if ((base_slot ^ prev_slot) & PHASE).eq(&0) {
       Ok(None)
@@ -456,18 +450,16 @@ where
       return Err(task);
     }
 
-    unsafe {
-      self
-        .inner
-        .with_buffer_cell(|cell| cell.write(MaybeUninit::new(task)), write_index);
-    }
+    self
+      .inner
+      .with_buffer_cell(|cell| cell.write(MaybeUninit::new(task)), write_index);
 
     let base_slot = self
       .inner
       .slot
       .fetch_add(1 << INDEX_SHIFT, Ordering::Relaxed);
 
-    let prev_slot = unsafe { self.replace_slot(base_slot.wrapping_add(1 << INDEX_SHIFT)) };
+    let prev_slot = self.replace_slot(base_slot.wrapping_add(1 << INDEX_SHIFT));
 
     if ((base_slot ^ prev_slot) & PHASE).eq(&0) {
       Ok(None)
@@ -542,7 +534,7 @@ mod test {
     type Value = usize;
 
     async fn batch_process<const N: usize>(
-      batch: PendingAssignment<'async_trait, Self, N>,
+      batch: PendingAssignment<'_, Self, N>,
     ) -> CompletionReceipt<Self> {
       batch.into_assignment().map(|val| val)
     }
@@ -550,7 +542,6 @@ mod test {
 
   #[cfg(not(loom))]
   #[cfg_attr(not(loom), tokio::test(crate = "async_local"))]
-
   async fn it_process_tasks() {
     use rand::{distributions::Standard, prelude::*};
     let mut rng = rand::thread_rng();
@@ -597,7 +588,7 @@ mod test {
     type Value = usize;
 
     async fn batch_process<const N: usize>(
-      batch: PendingAssignment<'async_trait, Self, N>,
+      batch: PendingAssignment<'_, Self, N>,
     ) -> CompletionReceipt<Self> {
       batch
         .with_blocking(|batch| {
@@ -632,7 +623,7 @@ mod test {
     type Value = usize;
 
     async fn batch_process<const N: usize>(
-      batch: PendingAssignment<'async_trait, Self, N>,
+      batch: PendingAssignment<'_, Self, N>,
     ) -> CompletionReceipt<Self> {
       let assignment = batch.into_assignment();
 
@@ -828,7 +819,7 @@ mod test {
   impl BackgroundQueue for EchoBackgroundQueue {
     type Task = (usize, oneshot::Sender<usize>);
 
-    async fn batch_process<const N: usize>(tasks: UnboundedRange<'async_trait, Self::Task, N>) {
+    async fn batch_process<const N: usize>(tasks: UnboundedRange<'_, Self::Task, N>) {
       let tasks = tasks.into_bounded().into_iter();
 
       for (val, tx) in tasks {

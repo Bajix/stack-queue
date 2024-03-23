@@ -10,16 +10,15 @@ repository = "https://github.com/Bajix/stack-queue/"
 publish = false
 
 [dependencies]
-async_t = "0.7"
-criterion = { version = "0.5.1", features = ["async_tokio", "html_reports"] }
+criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 crossbeam-deque = "0.8"
-flume = "0.10"
+flume = "0.11"
 futures = "0.3"
 stack-queue = { path = "../stack-queue", features = ["barrier-protected-runtime"] }
 tokio = { version = "1", features = ["rt", "macros", "time"] }
 
 [dev-dependencies]
-jemallocator = "0.5.0"
+jemallocator = "0.5"
 
 [lib]
 test = false

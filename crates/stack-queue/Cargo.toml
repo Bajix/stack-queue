@@ -7,11 +7,11 @@ description = "Heapless auto-batching queue"
 readme = "../../README.md"
 license = "MIT"
 repository = "https://github.com/Bajix/stack-queue/"
+rust-version = "1.75"
 
 [dependencies]
-async_t = "0.7"
-async-local = { version = "2", features = ["tokio-runtime"] }
-crossbeam-utils = "0.8.15"
+async-local = { version = "2.0", features = ["tokio-runtime"] }
+crossbeam-utils = "0.8"
 derive-stack-queue = { version = "0.12.0", path = "../derive-stack-queue" }
 diesel = { version = "2", optional = true }
 generativity = "1.1"
@@ -20,14 +20,14 @@ redis = { version = "0.24", optional = true }
 tokio = { version = "1", features = ["rt", "sync"] }
 
 [dev-dependencies]
-async-local = { version = "1.2", features = ["barrier-protected-runtime"] }
+async-local = { version = "2.0", features = ["barrier-protected-runtime"] }
 futures = "0.3"
-rand = "0.8.5"
+rand = "0.8"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [target.'cfg(loom)'.dependencies]
 futures-test = "0.3"
-loom = { version = "0.5", features = ["futures"] }
+loom = { version = "0.7", features = ["futures"] }
 
 [lib]
 doctest = false
@@ -35,9 +35,6 @@ bench = false
 
 [features]
 default = []
-
-# Downgrade async_t to async_trait::async_trait
-boxed = ["async_t/boxed"]
 
 # Tokio Runtime configured with a barrier-synchronized shutdown as to ensure tasks never outlive worker thread owned local data
 barrier-protected-runtime = ["async-local/barrier-protected-runtime"]

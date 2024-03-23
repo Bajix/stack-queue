@@ -23,9 +23,3 @@ For best performance, exclusively use the Tokio runtime as configured via the [t
 | `crossbeam`             | `flume`                        | `TaskQueue`                      | `BackgroundQueue`                | `tokio::mpsc`                   |
 |:------------------------|:-------------------------------|:---------------------------------|:---------------------------------|:------------------------------- |
 | `1.67 us` (✅ **1.00x**) | `1.95 us` (❌ *1.17x slower*)   | `942.72 ns` (✅ **1.77x faster**) | `638.45 ns` (🚀 **2.62x faster**) | `1.91 us` (❌ *1.14x slower*)    |
-
----
-## Stable Usage
-
-This crate conditionally makes use of [type_alias_impl_trait](https://rust-lang.github.io/rfcs/2515-type_alias_impl_trait.html) and [impl_trait_in_assoc_type](https://github.com/rust-lang/rust/issues/63063) to allow async fns in traits to be unboxed. To compile on `stable` the `boxed` feature flag can be used to downgrade [async_t::async_trait](https://docs.rs/async_t/latest/async_t/attr.async_trait.html) to [async_trait::async_trait](https://docs.rs/async-trait/latest/async_trait).
-
