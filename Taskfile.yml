@@ -3,9 +3,6 @@ version: "3"
 env:
   TARGET: x86_64-apple-darwin
 
-sources:
-  - crates/stack-queue/**/*.rs
-
 tasks:
   default:
     cmds:
@@ -23,27 +20,27 @@ tasks:
 
   bench:
     env:
-      RUSTFLAGS: "-C target-cpu=native"
+      RUSTFLAGS: -C target-cpu=native
     cmds:
       - cargo bench --profile release -p bencher
 
   bench-slim:
     env:
-      RUSTFLAGS: "-C target-cpu=native"
+      RUSTFLAGS: -C target-cpu=native
       FILTER: Batching/(?:crossbeam|TaskQueue|BackgroundQueue)/16
     cmds:
       - cargo bench --profile release -p bencher -- $FILTER
 
   generate-bench-table:
     env:
-      RUSTFLAGS: "-C target-cpu=native"
+      RUSTFLAGS: -C target-cpu=native
       FILTER: Batching/(?:crossbeam|flume|TaskQueue|BackgroundQueue|tokio::mpsc)/16
     cmds:
       - cargo criterion --message-format=json -p bencher -- $FILTER | criterion-table
 
   flamegraph:
     env:
-      RUSTFLAGS: "-C target-cpu=native"
+      RUSTFLAGS: -C target-cpu=native
       CARGO_PROFILE_BENCH_DEBUG: true
     cmds:
       - cargo flamegraph --bench benchmarks --root -p bencher -- stack_queue --bench
@@ -102,8 +99,8 @@ tasks:
       - cargo test -Z build-std -p stack-queue --target $TARGET -- --nocapture
     sources:
       - crates/stack-queue/**/*.rs
-    ev:
-      RUSTFLAGS: -Z sanitizer=address
+    env:
+      RUSTFLAGS: -C target-cpu=native -Z sanitizer=address
 
   test-thread-sanitizer:
     cmds:
@@ -111,7 +108,7 @@ tasks:
     sources:
       - crates/stack-queue/**/*.rs
     env:
-      RUSTFLAGS: -Z sanitizer=thread
+      RUSTFLAGS: -C target-cpu=native -Z sanitizer=thread
 
   test-leak-sanitizer:
     cmds:
@@ -119,4 +116,4 @@ tasks:
     sources:
       - crates/stack-queue/**/*.rs
     env:
-      RUSTFLAGS: -Z sanitizer=leak
+      RUSTFLAGS: -C target-cpu=native -Z sanitizer=leak

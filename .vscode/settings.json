@@ -2,4 +2,9 @@
   "rust-analyzer.rustfmt.extraArgs": [
     "+nightly"
   ],
+  "yaml.schemas": {
+    "https://taskfile.dev/schema.json": [
+      "**/Taskfile.yml",
+    ]
+  }
 }
