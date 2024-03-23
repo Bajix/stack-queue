@@ -34,7 +34,7 @@ tasks:
   generate-bench-table:
     env:
       RUSTFLAGS: -C target-cpu=native
-      FILTER: Batching/(?:crossbeam|flume|TaskQueue|BackgroundQueue|tokio::mpsc)/16
+      FILTER: Batching/(?:crossbeam|flume|TaskQueue|tokio::mpsc)/16
     cmds:
       - cargo criterion --message-format=json -p bencher -- $FILTER | criterion-table
 
