@@ -65,6 +65,24 @@ unsafe impl<T> Send for BufferCell<T> where T: Send + Sync + Sized + 'static {}
 unsafe impl<T> Sync for BufferCell<T> where T: Send + Sync + Sized + 'static {}
 
 /// Auto-batched queue whereby each task resolves to a value
+///
+/// # Example
+///
+/// ```rust
+/// struct EchoQueue;
+///
+/// #[local_queue(buffer_size = 64)]
+/// impl TaskQueue for EchoQueue {
+///   type Task = usize;
+///   type Value = usize;
+///
+///   async fn batch_process<const N: usize>(
+///     batch: PendingAssignment<'_, Self, N>,
+///   ) -> CompletionReceipt<Self> {
+///     batch.into_assignment().map(|val| val)
+///   }
+/// }
+/// ```
 pub trait TaskQueue: Send + Sync + Sized + 'static {
   type Task: Send + Sync + Sized + 'static;
   type Value: Send;
@@ -158,7 +176,10 @@ pub trait BatchReducer: Send + Sync + Sized + 'static {
   }
 }
 
-/// Thread local context for enqueuing tasks on [`StackQueue`]
+/// Thread local context for enqueuing tasks on [`StackQueue`].
+///
+/// This can be implemented by using the [`local_queue`](crate::local_queue) macro on any [`TaskQueue`],
+/// [`BackgroundQueue`] or [`BatchReducer`] impl
 pub trait LocalQueue<const N: usize> {
   type BufferCell: Send + Sync + Sized + 'static;
 

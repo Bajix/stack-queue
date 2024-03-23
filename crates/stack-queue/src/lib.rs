@@ -24,4 +24,6 @@ mod queue;
 pub mod task;
 
 pub use derive_stack_queue::local_queue;
-pub use queue::{BackgroundQueue, BatchReducer, BufferCell, LocalQueue, StackQueue, TaskQueue};
+#[doc(hidden)]
+pub use queue::BufferCell;
+pub use queue::{BackgroundQueue, BatchReducer, LocalQueue, StackQueue, TaskQueue};
