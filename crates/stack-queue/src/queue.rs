@@ -14,6 +14,7 @@ use std::{
 use async_local::{AsContext, AsyncLocal, Context};
 use async_t::async_trait;
 use crossbeam_utils::CachePadded;
+use generativity::{Guard, Id};
 #[cfg(loom)]
 use loom::{
   cell::UnsafeCell,
@@ -433,7 +434,8 @@ where
     } else {
       self.occupy_region(write_index);
 
-      let queue = unsafe { T::queue().guarded_ref() };
+      let guard = Guard::new(Id::new());
+      let queue = T::queue().local_ref(guard);
 
       Ok(Some(PendingAssignment::new(base_slot, queue)))
     }
@@ -472,7 +474,7 @@ where
     } else {
       self.occupy_region(write_index);
 
-      let queue = unsafe { self.inner.guarded_ref() };
+      let queue = self.inner.local_ref();
 
       Ok(Some(UnboundedRange::new(base_slot, queue)))
     }

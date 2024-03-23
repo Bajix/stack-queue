@@ -2,7 +2,7 @@
 use std::sync::atomic::Ordering;
 use std::{marker::PhantomData, mem, ops::Range};
 
-use async_local::RefGuard;
+use async_local::LocalRef;
 #[cfg(loom)]
 use loom::sync::atomic::Ordering;
 #[cfg(not(loom))]
@@ -18,14 +18,14 @@ use crate::{
 /// The responsibilty to process a yet to be assigned set of tasks.
 pub struct PendingAssignment<'a, T: TaskQueue, const N: usize> {
   base_slot: usize,
-  queue: RefGuard<'a, Inner<TaskRef<T>, N>>,
+  queue: LocalRef<'a, Inner<TaskRef<T>, N>>,
 }
 
 impl<'a, T, const N: usize> PendingAssignment<'a, T, N>
 where
   T: TaskQueue,
 {
-  pub(crate) fn new(base_slot: usize, queue: RefGuard<'a, Inner<TaskRef<T>, N>>) -> Self {
+  pub(crate) fn new(base_slot: usize, queue: LocalRef<'a, Inner<TaskRef<T>, N>>) -> Self {
     PendingAssignment { base_slot, queue }
   }
 
@@ -77,14 +77,14 @@ where
 /// Assignment of a task range yet to be processed
 pub struct TaskAssignment<'a, T: TaskQueue, const N: usize> {
   task_range: Range<usize>,
-  queue: RefGuard<'a, Inner<TaskRef<T>, N>>,
+  queue: LocalRef<'a, Inner<TaskRef<T>, N>>,
 }
 
 impl<'a, T, const N: usize> TaskAssignment<'a, T, N>
 where
   T: TaskQueue,
 {
-  fn new(task_range: Range<usize>, queue: RefGuard<'a, Inner<TaskRef<T>, N>>) -> Self {
+  fn new(task_range: Range<usize>, queue: LocalRef<'a, Inner<TaskRef<T>, N>>) -> Self {
     TaskAssignment { task_range, queue }
   }
 
@@ -194,14 +194,14 @@ where
 /// buffer
 pub struct UnboundedRange<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   base_slot: usize,
-  queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
+  queue: LocalRef<'a, Inner<BufferCell<T>, N>>,
 }
 
 impl<'a, T, const N: usize> UnboundedRange<'a, T, N>
 where
   T: Send + Sync + Sized + 'static,
 {
-  pub(crate) fn new(base_slot: usize, queue: RefGuard<'a, Inner<BufferCell<T>, N>>) -> Self {
+  pub(crate) fn new(base_slot: usize, queue: LocalRef<'a, Inner<BufferCell<T>, N>>) -> Self {
     UnboundedRange { base_slot, queue }
   }
 
@@ -268,14 +268,14 @@ unsafe impl<'a, T, const N: usize> Sync for UnboundedRange<'a, T, N> where
 /// buffer
 pub struct BoundedRange<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   range: Range<usize>,
-  queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
+  queue: LocalRef<'a, Inner<BufferCell<T>, N>>,
 }
 
 impl<'a, T, const N: usize> BoundedRange<'a, T, N>
 where
   T: Send + Sync + Sized + 'static,
 {
-  fn new(range: Range<usize>, queue: RefGuard<'a, Inner<BufferCell<T>, N>>) -> Self {
+  fn new(range: Range<usize>, queue: LocalRef<'a, Inner<BufferCell<T>, N>>) -> Self {
     BoundedRange { range, queue }
   }
 
@@ -386,7 +386,7 @@ unsafe impl<'a, T, const N: usize> Sync for BoundedRange<'a, T, N> where
 pub struct BufferIter<'a, T: Send + Sync + Sized + 'static, const N: usize> {
   current: usize,
   range: Range<usize>,
-  queue: RefGuard<'a, Inner<BufferCell<T>, N>>,
+  queue: LocalRef<'a, Inner<BufferCell<T>, N>>,
 }
 
 impl<'a, T, const N: usize> BufferIter<'a, T, N>
