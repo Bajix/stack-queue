@@ -16,7 +16,7 @@ derive-stack-queue = { version = "0.13.0", path = "../derive-stack-queue" }
 diesel = { version = "2", optional = true }
 generativity = "1.1"
 pin-project = "1"
-redis = { version = "0.24", optional = true }
+redis = { version = "0.25", optional = true }
 tokio = { version = "1", features = ["net", "rt", "sync"] }
 
 [dev-dependencies]
