@@ -1,7 +1,11 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(loom, allow(dead_code))]
 
+#[macro_use(assert_cfg)]
+extern crate static_assertions;
 extern crate self as stack_queue;
+
+assert_cfg!(not(target_pointer_width = "16"));
 
 #[doc(hidden)]
 #[cfg(loom)]

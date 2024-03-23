@@ -17,6 +17,7 @@ diesel = { version = "2", optional = true }
 generativity = "1.1"
 pin-project = "1"
 redis = { version = "0.25", optional = true }
+static_assertions = "1.1.0"
 tokio = { version = "1", features = ["net", "rt", "sync"] }
 
 [dev-dependencies]
