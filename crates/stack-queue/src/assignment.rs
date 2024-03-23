@@ -138,10 +138,7 @@ where
   }
 
   fn deoccupy_buffer(&self) {
-    self.queue.occupancy.fetch_sub(
-      one_shifted::<N>(self.task_range.start & (N - 1)),
-      Ordering::Release,
-    );
+    self.queue.deoccupy_region(self.task_range.start & (N - 1));
   }
 
   fn into_completion_receipt(self) -> CompletionReceipt<T> {
@@ -349,10 +346,7 @@ where
   }
 
   fn deoccupy_buffer(&self) {
-    self.queue.occupancy.fetch_sub(
-      one_shifted::<N>(self.range.start & (N - 1)),
-      Ordering::Release,
-    );
+    self.queue.deoccupy_region(self.range.start & (N - 1));
   }
 }
 
@@ -394,10 +388,7 @@ where
   T: Send + Sync + Sized + 'static,
 {
   fn deoccupy_buffer(&self) {
-    self.queue.occupancy.fetch_sub(
-      one_shifted::<N>(self.range.start & (N - 1)),
-      Ordering::Release,
-    );
+    self.queue.deoccupy_region(self.range.start & (N - 1));
   }
 }
 

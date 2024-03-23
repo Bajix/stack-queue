@@ -186,6 +186,18 @@ where
   }
 }
 
+impl<T, const N: usize> Inner<T, N>
+where
+  T: Sync + Sized,
+{
+  #[inline(always)]
+  pub(crate) fn deoccupy_region(&self, index: usize) {
+    self
+      .occupancy
+      .fetch_sub(one_shifted::<N>(index), Ordering::Release);
+  }
+}
+
 impl<T, const N: usize> Default for Inner<TaskRef<T>, N>
 where
   T: TaskQueue,
