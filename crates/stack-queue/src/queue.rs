@@ -4,6 +4,7 @@ use std::{
   future::Future,
   mem::MaybeUninit,
   ops::{BitAnd, Deref},
+  task::Waker,
 };
 #[cfg(not(loom))]
 use std::{
@@ -13,6 +14,7 @@ use std::{
 };
 
 use async_local::{AsContext, Context};
+use crossbeam_deque::{Steal, Stealer, Worker};
 use crossbeam_utils::CachePadded;
 #[cfg(loom)]
 use loom::{
@@ -21,7 +23,7 @@ use loom::{
   thread::LocalKey,
 };
 #[cfg(not(loom))]
-use tokio::task::{spawn, yield_now};
+use tokio::task::spawn;
 
 use crate::{
   assignment::{BufferIter, CompletionReceipt, PendingAssignment, UnboundedRange},
@@ -168,19 +170,37 @@ pub struct Inner<T: Sync + Sized + 'static, const N: usize = 1024> {
   pub(crate) slot: CachePadded<AtomicUsize>,
   pub(crate) occupancy: CachePadded<AtomicUsize>,
   pub(crate) buffer: [T; N],
+  pub(crate) stealer: Stealer<Waker>,
 }
 
-impl<T, const N: usize> Default for Inner<BufferCell<T>, N>
+impl<T, const N: usize> From<Stealer<Waker>> for Inner<BufferCell<T>, N>
 where
   T: Send + Sync + Sized + 'static,
 {
-  fn default() -> Self {
+  fn from(stealer: Stealer<Waker>) -> Self {
     let buffer = array::from_fn(|_| BufferCell::new_uninit());
 
     Inner {
       slot: CachePadded::new(AtomicUsize::new(0)),
       occupancy: CachePadded::new(AtomicUsize::new(0)),
       buffer,
+      stealer,
+    }
+  }
+}
+
+impl<T, const N: usize> From<Stealer<Waker>> for Inner<TaskRef<T>, N>
+where
+  T: TaskQueue,
+{
+  fn from(stealer: Stealer<Waker>) -> Self {
+    let buffer = array::from_fn(|_| TaskRef::new_uninit());
+
+    Inner {
+      slot: CachePadded::new(AtomicUsize::new(0)),
+      occupancy: CachePadded::new(AtomicUsize::new(0)),
+      buffer,
+      stealer,
     }
   }
 }
@@ -191,23 +211,24 @@ where
 {
   #[inline(always)]
   pub(crate) fn deoccupy_region(&self, index: usize) {
-    self
+    let one_shifted = one_shifted::<N>(index);
+
+    if self
       .occupancy
-      .fetch_sub(one_shifted::<N>(index), Ordering::Release);
-  }
-}
+      .fetch_sub(one_shifted, Ordering::AcqRel)
+      .eq(&one_shifted)
+    {
+      let mut batch_limit = region_size::<N>();
 
-impl<T, const N: usize> Default for Inner<TaskRef<T>, N>
-where
-  T: TaskQueue,
-{
-  fn default() -> Self {
-    let buffer = array::from_fn(|_| TaskRef::new_uninit());
+      while batch_limit.gt(&0) {
+        match self.stealer.steal() {
+          Steal::Empty => break,
+          Steal::Success(waker) => waker.wake(),
+          Steal::Retry => continue,
+        }
 
-    Inner {
-      slot: CachePadded::new(AtomicUsize::new(0)),
-      occupancy: CachePadded::new(AtomicUsize::new(0)),
-      buffer,
+        batch_limit -= 1;
+      }
     }
   }
 }
@@ -248,12 +269,13 @@ pub struct StackQueue<T: Sync + Sized + 'static, const N: usize = 1024> {
   slot: CachePadded<UnsafeCell<usize>>,
   occupancy: CachePadded<UnsafeCell<usize>>,
   inner: Context<Inner<T, N>>,
+  pub(crate) pending: Worker<Waker>,
 }
 
 impl<T, const N: usize> Default for StackQueue<T, N>
 where
   T: Sync + Sized + 'static,
-  Inner<T, N>: Default,
+  Inner<T, N>: From<Stealer<Waker>>,
 {
   fn default() -> Self {
     debug_assert_eq!(
@@ -264,10 +286,13 @@ where
     debug_assert!(N >= MIN_BUFFER_LEN);
     debug_assert!(N <= MAX_BUFFER_LEN);
 
+    let pending = Worker::new_fifo();
+
     StackQueue {
       slot: CachePadded::new(UnsafeCell::new(PHASE)),
       occupancy: CachePadded::new(UnsafeCell::new(0)),
-      inner: Context::new(Inner::default()),
+      inner: Context::new(Inner::from(pending.stealer())),
+      pending,
     }
   }
 }
@@ -486,6 +511,8 @@ where
   where
     Q: BackgroundQueue<Task = T> + LocalQueue<N, BufferCell = BufferCell<T>>,
   {
+    use crate::task::BackgroundEnqueue;
+
     Q::queue().with(|queue| match unsafe { queue.push(task) } {
       Ok(Some(assignment)) => {
         spawn(async move {
@@ -493,22 +520,10 @@ where
         });
       }
       Ok(None) => {}
-      Err(mut task) => {
+      Err(task) => {
         spawn(async move {
-          loop {
-            task = match Q::queue().with(|queue| unsafe { queue.push(task) }) {
-              Ok(Some(assignment)) => {
-                Q::batch_process::<N>(assignment).await;
-                return;
-              }
-              Ok(None) => {
-                return;
-              }
-              Err(task) => {
-                yield_now().await;
-                task
-              }
-            };
+          if let Some(assignment) = BackgroundEnqueue::<'_, Q, N>::new(task).await {
+            Q::batch_process::<N>(assignment).await;
           }
         });
       }
@@ -566,7 +581,7 @@ mod test {
 
     while seed.len().gt(&0) {
       let mut tasks: FuturesUnordered<_> = (&mut seed)
-        .take(rng.gen_range(0..4096))
+        .take(rng.gen_range(0..8192))
         .map(EchoQueue::auto_batch)
         .collect();
 
@@ -582,7 +597,7 @@ mod test {
   #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
 
   async fn it_cycles() {
-    for i in 0..1024 {
+    for i in 0..8192 {
       EchoQueue::auto_batch(i).await;
     }
   }
@@ -648,7 +663,7 @@ mod test {
   async fn it_negotiates_receiver_drop() {
     use std::sync::Arc;
 
-    let tasks: FuturesUnordered<_> = (0..256)
+    let tasks: FuturesUnordered<_> = (0..8192)
       .map(|i| async move {
         let barrier = Arc::new(Barrier::new(2));
 

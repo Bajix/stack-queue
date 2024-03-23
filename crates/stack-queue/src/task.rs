@@ -12,7 +12,12 @@ use std::{
   task::{Context, Poll},
   thread,
 };
-use std::{marker::PhantomPinned, mem::MaybeUninit, pin::Pin, task::Waker};
+use std::{
+  marker::{PhantomData, PhantomPinned},
+  mem::MaybeUninit,
+  pin::Pin,
+  task::Waker,
+};
 
 #[cfg(feature = "diesel-associations")]
 use diesel::associations::BelongsTo;
@@ -31,7 +36,7 @@ use tokio::task::spawn;
 use crate::{
   assignment::{BufferIter, UnboundedRange},
   queue::{LocalQueue, TaskQueue},
-  BatchReducer,
+  BackgroundQueue, BatchReducer,
 };
 #[cfg(not(loom))]
 use crate::{queue::QueueFull, BufferCell};
@@ -344,8 +349,8 @@ where
 
     match this.state {
       State::Unbatched { task: _ } => {
-        match T::queue().with(|queue| unsafe {
-          queue.enqueue(|task_ref| {
+        T::queue().with(|queue| unsafe {
+          let assignment = queue.enqueue(|task_ref| {
             let task = match mem::replace(
               this.state,
               State::Batched(Receiver::new(task_ref.state_ptr(), cx.waker().to_owned())),
@@ -360,18 +365,20 @@ where
             };
 
             task_ref.init(task, rx)
-          })
-        }) {
-          Ok(Some(assignment)) => {
-            spawn(async move {
-              T::batch_process::<N>(assignment).await;
-            });
+          });
+
+          match assignment {
+            Ok(Some(assignment)) => {
+              spawn(async move {
+                T::batch_process::<N>(assignment).await;
+              });
+            }
+            Ok(None) => {}
+            Err(QueueFull) => {
+              queue.pending.push(cx.waker().to_owned());
+            }
           }
-          Err(QueueFull) => {
-            cx.waker().wake_by_ref();
-          }
-          _ => {}
-        }
+        });
 
         Poll::Pending
       }
@@ -415,6 +422,42 @@ where
   }
 }
 
+#[pin_project(project_replace = EnqueueOwn)]
+pub(crate) enum BackgroundEnqueue<'a, T: BackgroundQueue, const N: usize> {
+  Pending(T::Task, PhantomData<&'a ()>),
+  Enqueued,
+}
+
+impl<'a, T, const N: usize> BackgroundEnqueue<'a, T, N>
+where
+  T: BackgroundQueue,
+{
+  pub(crate) fn new(task: T::Task) -> Self {
+    BackgroundEnqueue::Pending(task, PhantomData)
+  }
+}
+
+#[cfg(not(loom))]
+impl<'a, T, const N: usize> Future for BackgroundEnqueue<'a, T, N>
+where
+  T: BackgroundQueue,
+  T: LocalQueue<N, BufferCell = BufferCell<T::Task>>,
+{
+  type Output = Option<UnboundedRange<'a, T::Task, N>>;
+  fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    match self.as_mut().project_replace(BackgroundEnqueue::Enqueued) {
+      EnqueueOwn::Pending(task, _) => T::queue().with(|queue| match unsafe { queue.push(task) } {
+        Ok(assignment) => Poll::Ready(assignment),
+        Err(task) => {
+          queue.pending.push(cx.waker().to_owned());
+          self.project_replace(BackgroundEnqueue::Pending(task, PhantomData));
+          Poll::Pending
+        }
+      }),
+      EnqueueOwn::Enqueued => Poll::Ready(None),
+    }
+  }
+}
 #[pin_project(project = ReduceProj)]
 pub struct BatchReduce<'a, T, F, R, const N: usize>
 where
@@ -469,7 +512,7 @@ where
         reducer: _,
       } => match mem::replace(this.state, ReduceState::Batched) {
         ReduceState::Unbatched { task, reducer } => {
-          match T::queue().with(|queue| unsafe { queue.push(task) }) {
+          T::queue().with(|queue| match unsafe { queue.push(task) } {
             Ok(Some(batch)) => {
               let _ = mem::replace(this.state, ReduceState::Collecting { batch, reducer });
               cx.waker().wake_by_ref();
@@ -478,10 +521,10 @@ where
             Ok(None) => Poll::Ready(None),
             Err(task) => {
               let _ = mem::replace(this.state, ReduceState::Unbatched { task, reducer });
-              cx.waker().wake_by_ref();
+              queue.pending.push(cx.waker().to_owned());
               Poll::Pending
             }
-          }
+          })
         }
         _ => unsafe {
           unreachable_unchecked();
@@ -548,7 +591,7 @@ where
       CollectState::Unbatched { task: _ } => {
         match mem::replace(this.state, CollectState::Batched) {
           CollectState::Unbatched { task } => {
-            match T::queue().with(|queue| unsafe { queue.push(task) }) {
+            T::queue().with(|queue| match unsafe { queue.push(task) } {
               Ok(Some(batch)) => {
                 let _ = mem::replace(this.state, CollectState::Collecting { batch });
                 cx.waker().wake_by_ref();
@@ -557,10 +600,10 @@ where
               Ok(None) => Poll::Ready(None),
               Err(task) => {
                 let _ = mem::replace(this.state, CollectState::Unbatched { task });
-                cx.waker().wake_by_ref();
+                queue.pending.push(cx.waker().to_owned());
                 Poll::Pending
               }
-            }
+            })
           }
           _ => unsafe {
             unreachable_unchecked();

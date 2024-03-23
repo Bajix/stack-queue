@@ -9,7 +9,6 @@ use loom::sync::atomic::Ordering;
 use tokio::task::{spawn_blocking, JoinHandle};
 
 use crate::{
-  helpers::one_shifted,
   queue::{Inner, TaskQueue, INDEX_SHIFT, PHASE},
   task::TaskRef,
   BufferCell,
@@ -235,7 +234,7 @@ where
 {
   fn drop(&mut self) {
     let task_range = self.set_bounds();
-    let one_shifted = one_shifted::<N>(task_range.start & (N - 1));
+    let start_index = task_range.start & (N - 1);
 
     let queue = self.queue;
 
@@ -245,10 +244,7 @@ where
       }
     }
 
-    self
-      .queue
-      .occupancy
-      .fetch_sub(one_shifted, Ordering::Release);
+    self.queue.deoccupy_region(start_index);
   }
 }
 
