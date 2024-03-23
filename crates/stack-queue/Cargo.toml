@@ -17,7 +17,7 @@ diesel = { version = "2", optional = true }
 generativity = "1.1"
 pin-project = "1"
 redis = { version = "0.24", optional = true }
-tokio = { version = "1", features = ["rt", "sync"] }
+tokio = { version = "1", features = ["net", "rt", "sync"] }
 
 [dev-dependencies]
 async-local = { version = "2.0", features = ["barrier-protected-runtime"] }
