@@ -595,7 +595,6 @@ mod test {
 
   #[cfg(not(loom))]
   #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
-
   async fn it_cycles() {
     for i in 0..8192 {
       EchoQueue::auto_batch(i).await;
@@ -626,7 +625,6 @@ mod test {
 
   #[cfg(not(loom))]
   #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
-
   async fn it_has_drop_safety() {
     let handle = spawn(async {
       SlowQueue::auto_batch(0).await;
@@ -659,7 +657,6 @@ mod test {
 
   #[cfg(not(loom))]
   #[cfg_attr(not(loom), tokio::test(crate = "async_local", flavor = "multi_thread"))]
-
   async fn it_negotiates_receiver_drop() {
     use std::sync::Arc;
 
