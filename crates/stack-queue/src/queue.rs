@@ -12,9 +12,8 @@ use std::{
   thread::LocalKey,
 };
 
-use async_local::{AsContext, AsyncLocal, Context};
+use async_local::{AsContext, Context};
 use crossbeam_utils::CachePadded;
-use generativity::{Guard, Id};
 #[cfg(loom)]
 use loom::{
   cell::UnsafeCell,
@@ -416,7 +415,6 @@ where
     write_with: F,
   ) -> Result<Option<PendingAssignment<'a, T, N>>, QueueFull>
   where
-    T: LocalQueue<N, BufferCell = TaskRef<T>>,
     F: FnOnce(&TaskRef<T>),
   {
     let write_index = self.current_write_index();
@@ -440,8 +438,7 @@ where
     } else {
       self.occupy_region(write_index);
 
-      let guard = Guard::new(Id::new());
-      let queue = T::queue().local_ref(guard);
+      let queue = self.inner.local_ref();
 
       Ok(Some(PendingAssignment::new(base_slot, queue)))
     }
