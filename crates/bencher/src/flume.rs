@@ -1,7 +1,7 @@
 use std::iter;
 
 use criterion::{measurement::WallTime, BenchmarkGroup, BenchmarkId};
-use flume::{Sender};
+use flume::Sender;
 use futures::future::join_all;
 use tokio::{runtime::Runtime, spawn, sync::oneshot};
 
