@@ -19,6 +19,7 @@ For best performance, exclusively use the Tokio runtime as configured via the [t
 
 ## Benchmark results // batching 16 tasks
 
-| `crossbeam`             | `flume`                        | `TaskQueue`                      | `tokio::mpsc`                   |
-|:------------------------|:-------------------------------|:---------------------------------|:------------------------------- |
-| `1.75 us` (✅ **1.00x**) | `2.07 us` (❌ *1.18x slower*)   | `967.20 ns` (🚀 **1.81x faster**) | `2.03 us` (❌ *1.16x slower*)    |
+
+| `crossbeam`               | `flume`                          | `TaskQueue`                      | `tokio::mpsc`                     |
+|:--------------------------|:---------------------------------|:---------------------------------|:--------------------------------- |
+| `576.33 ns` (✅ **1.00x**) | `656.54 ns` (❌ *1.14x slower*)   | `255.33 ns` (🚀 **2.26x faster**) | `551.48 ns` (✅ **1.05x faster**)  |
