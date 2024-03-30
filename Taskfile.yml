@@ -1,7 +1,7 @@
 version: "3"
 
 env:
-  TARGET: x86_64-apple-darwin
+  TARGET: aarch64-apple-darwin
 
 tasks:
   default:
