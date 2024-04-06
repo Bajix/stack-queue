@@ -402,6 +402,7 @@ where
     unsafe { self.with_slot(|val| slot_index::<N>(*val)) }
   }
 
+  #[inline(always)]
   fn check_regional_occupancy(&self, index: usize) -> Result<(), QueueFull> {
     let region_mask = region_mask::<N>(index);
 
@@ -430,6 +431,7 @@ where
     }
   }
 
+  #[inline(always)]
   fn occupy_region(&self, index: usize) {
     // Add one relative to the the current region. In the unlikely event of an overflow, the next
     // region checkpoint will result in QueueFull until fewer than 256 task batches exist.

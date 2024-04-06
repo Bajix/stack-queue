@@ -28,6 +28,7 @@ where
     PendingAssignment { base_slot, queue }
   }
 
+  #[inline(always)]
   fn set_assignment_bounds(&self) -> Range<usize> {
     let end_slot = self.queue.slot.fetch_xor(PHASE, Ordering::Relaxed);
 
@@ -136,6 +137,7 @@ where
     self.into_completion_receipt()
   }
 
+  #[inline(always)]
   fn deoccupy_buffer(&self) {
     self.queue.deoccupy_region(self.task_range.start & (N - 1));
   }
@@ -201,6 +203,7 @@ where
     UnboundedRange { base_slot, queue }
   }
 
+  #[inline(always)]
   fn set_bounds(&self) -> Range<usize> {
     let end_slot = self.queue.slot.fetch_xor(PHASE, Ordering::Relaxed);
     (self.base_slot >> INDEX_SHIFT)..(end_slot >> INDEX_SHIFT)
@@ -341,6 +344,7 @@ where
     batch.queue.with_blocking(move |_| f(batch))
   }
 
+  #[inline(always)]
   fn deoccupy_buffer(&self) {
     self.queue.deoccupy_region(self.range.start & (N - 1));
   }
