@@ -6,5 +6,8 @@
     "https://taskfile.dev/schema.json": [
       "**/Taskfile.yml",
     ]
-  }
+  },
+  "rust-analyzer.linkedProjects": [
+    "./crates/stack-queue/Cargo.toml"
+  ]
 }
