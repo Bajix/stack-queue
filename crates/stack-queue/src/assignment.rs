@@ -1,6 +1,10 @@
 #[cfg(not(loom))]
 use std::sync::atomic::Ordering;
-use std::{marker::PhantomData, mem, ops::Range};
+use std::{
+  marker::PhantomData,
+  mem::{self, needs_drop},
+  ops::Range,
+};
 
 use async_local::LocalRef;
 #[cfg(loom)]
@@ -117,7 +121,10 @@ where
     I: IntoIterator<Item = T::Value>,
   {
     self.tasks().zip(iter).for_each(|(task_ref, value)| unsafe {
-      drop(task_ref.take_task_unchecked());
+      if needs_drop::<T::Task>() {
+        drop(task_ref.take_task_unchecked());
+      }
+
       task_ref.resolve_unchecked(value);
     });
 
@@ -166,9 +173,11 @@ where
   T: TaskQueue,
 {
   fn drop(&mut self) {
-    self
-      .tasks()
-      .for_each(|task_ref| unsafe { drop(task_ref.take_task_unchecked()) });
+    if needs_drop::<T::Task>() {
+      self
+        .tasks()
+        .for_each(|task_ref| unsafe { drop(task_ref.take_task_unchecked()) });
+    }
 
     self.deoccupy_buffer();
   }
@@ -241,9 +250,11 @@ where
 
     let queue = self.queue;
 
-    for index in task_range {
-      unsafe {
-        queue.with_buffer_cell(|cell| (*cell).assume_init_drop(), index & (N - 1));
+    if needs_drop::<T>() {
+      for index in task_range {
+        unsafe {
+          queue.with_buffer_cell(|cell| (*cell).assume_init_drop(), index & (N - 1));
+        }
       }
     }
 
@@ -355,11 +366,13 @@ where
   T: Send + Sync + Sized + 'static,
 {
   fn drop(&mut self) {
-    for index in self.range.clone() {
-      unsafe {
-        self
-          .queue
-          .with_buffer_cell(|cell| (*cell).assume_init_drop(), index & (N - 1));
+    if needs_drop::<T>() {
+      for index in self.range.clone() {
+        unsafe {
+          self
+            .queue
+            .with_buffer_cell(|cell| (*cell).assume_init_drop(), index & (N - 1));
+        }
       }
     }
 
@@ -429,7 +442,9 @@ where
   T: Send + Sync + Sized + 'static,
 {
   fn drop(&mut self) {
-    while self.next().is_some() {}
+    if needs_drop::<T>() {
+      while self.next().is_some() {}
+    }
     self.deoccupy_buffer();
   }
 }

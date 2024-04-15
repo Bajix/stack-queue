@@ -14,7 +14,7 @@ use std::{
 };
 use std::{
   marker::{PhantomData, PhantomPinned},
-  mem::MaybeUninit,
+  mem::{needs_drop, MaybeUninit},
   pin::Pin,
   task::Waker,
 };
@@ -411,7 +411,7 @@ where
         state = rx.state().load(Ordering::Acquire);
       }
 
-      if (state & VALUE_SET).eq(&VALUE_SET) {
+      if needs_drop::<T::Task>() && (state & VALUE_SET).eq(&VALUE_SET) {
         unsafe {
           rx.with_value_mut(|val| {
             (*val).assume_init_drop();

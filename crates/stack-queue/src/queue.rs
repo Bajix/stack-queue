@@ -178,8 +178,8 @@ pub trait BatchReducer: Send + Sync + Sized + 'static {
 
 /// Thread local context for enqueuing tasks on [`StackQueue`].
 ///
-/// This can be implemented by using the [`local_queue`](crate::local_queue) macro on any [`TaskQueue`],
-/// [`BackgroundQueue`] or [`BatchReducer`] impl
+/// This can be implemented by using the [`local_queue`](crate::local_queue) macro on any
+/// [`TaskQueue`], [`BackgroundQueue`] or [`BatchReducer`] impl
 pub trait LocalQueue<const N: usize> {
   type BufferCell: Send + Sync + Sized + 'static;
 
