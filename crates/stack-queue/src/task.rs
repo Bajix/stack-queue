@@ -10,7 +10,6 @@ use std::{
   ptr::addr_of,
   sync::atomic::{AtomicUsize, Ordering},
   task::{Context, Poll},
-  thread,
 };
 use std::{
   marker::{PhantomData, PhantomPinned},
@@ -25,8 +24,9 @@ use diesel::associations::BelongsTo;
 use loom::{
   cell::UnsafeCell,
   sync::atomic::{AtomicUsize, Ordering},
-  thread,
 };
+#[cfg(not(loom))]
+use parking_lot_core::SpinWait;
 use pin_project::{pin_project, pinned_drop};
 #[cfg(feature = "redis-args")]
 use redis::{RedisWrite, ToRedisArgs};
@@ -396,6 +396,35 @@ where
   }
 }
 
+#[cfg(not(loom))]
+#[pinned_drop]
+impl<T, const N: usize> PinnedDrop for BatchedTask<T, N>
+where
+  T: TaskQueue,
+{
+  fn drop(self: Pin<&mut Self>) {
+    if let State::Batched(rx) = &self.state {
+      let mut state = rx.state().fetch_or(RX_DROPPED, Ordering::AcqRel);
+      let mut spin = SpinWait::new();
+
+      // This cannot be safely deallocated until after the value is set
+      while state & SETTING_VALUE == SETTING_VALUE {
+        spin.spin();
+        state = rx.state().load(Ordering::Acquire);
+      }
+
+      if needs_drop::<T::Task>() && (state & VALUE_SET).eq(&VALUE_SET) {
+        unsafe {
+          rx.with_value_mut(|val| {
+            (*val).assume_init_drop();
+          });
+        }
+      }
+    }
+  }
+}
+
+#[cfg(loom)]
 #[pinned_drop]
 impl<T, const N: usize> PinnedDrop for BatchedTask<T, N>
 where
@@ -407,7 +436,7 @@ where
 
       // This cannot be safely deallocated until after the value is set
       while state & SETTING_VALUE == SETTING_VALUE {
-        thread::yield_now();
+        loom::thread::yield_now();
         state = rx.state().load(Ordering::Acquire);
       }
 

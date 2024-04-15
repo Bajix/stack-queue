@@ -1,5 +1,6 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(loom, allow(dead_code))]
+#![allow(clippy::missing_transmute_annotations)]
 
 #[macro_use(assert_cfg)]
 extern crate static_assertions;
