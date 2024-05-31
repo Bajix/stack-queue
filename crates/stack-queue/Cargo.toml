@@ -36,6 +36,9 @@ loom = { version = "0.7", features = ["futures"] }
 doctest = false
 bench = false
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+
 [features]
 default = []
 
